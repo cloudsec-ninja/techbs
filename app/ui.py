@@ -230,35 +230,41 @@ class CyberBSUI:
             self.state.status = "Listening on microphone..." if is_live else "Analyzing..."
             live.update(make_layout(self.state))
 
-            for idx, start, end, text in chunk_iterator:
-                if skipper and skipper.quit_requested:
-                    self.state.status = "Stopped by user."
-                    live.update(make_layout(self.state))
-                    break
+            try:
+                for idx, start, end, text in chunk_iterator:
+                    if skipper and skipper.quit_requested:
+                        self.state.status = "Stopped by user."
+                        live.update(make_layout(self.state))
+                        break
 
-                self.state.status = f"Transcribing... ({start:.0f}s–{end:.0f}s)" if is_live else f"Analyzing chunk {idx + 1} ({start:.0f}s–{end:.0f}s)..."
+                    self.state.status = f"Transcribing... ({start:.0f}s–{end:.0f}s)" if is_live else f"Analyzing chunk {idx + 1} ({start:.0f}s–{end:.0f}s)..."
+                    live.update(make_layout(self.state))
+
+                    if text:
+                        result = analyzer.score(text)
+                        chunk = ChunkResult(
+                            index=idx,
+                            start=start,
+                            end=end,
+                            transcript=text,
+                            signal_score=result["signal_score"],
+                            neutral_score=result["neutral_score"],
+                            bs_score=result["bs_score"],
+                            label=result["label"],
+                        )
+                        self.state.chunks.append(chunk)
+                        label_str = LABEL_DISPLAY.get(result["label"], result["label"].upper())
+                        self.state.status = f"Chunk {idx + 1}: {label_str}"
+                        live.update(make_layout(self.state))
+
+                self.state.status = "Analysis complete."
+                self.state.done = True
                 live.update(make_layout(self.state))
 
-                if text:
-                    result = analyzer.score(text)
-                    chunk = ChunkResult(
-                        index=idx,
-                        start=start,
-                        end=end,
-                        transcript=text,
-                        signal_score=result["signal_score"],
-                        neutral_score=result["neutral_score"],
-                        bs_score=result["bs_score"],
-                        label=result["label"],
-                    )
-                    self.state.chunks.append(chunk)
-                    label_str = LABEL_DISPLAY.get(result["label"], result["label"].upper())
-                    self.state.status = f"Chunk {idx + 1}: {label_str}"
-                    live.update(make_layout(self.state))
-
-            self.state.status = "Analysis complete."
-            self.state.done = True
-            live.update(make_layout(self.state))
+            except KeyboardInterrupt:
+                self.state.status = "Interrupted."
+                live.update(make_layout(self.state))
+                # Live context manager exits cleanly — terminal is restored before we return
 
         self._print_summary()
 

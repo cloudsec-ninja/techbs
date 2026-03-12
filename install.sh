@@ -22,32 +22,12 @@ echo "Python $VERSION found."
 
 # Check ffmpeg (required by Whisper for audio decoding)
 if ! command -v ffmpeg &> /dev/null; then
-    echo "ffmpeg not found. Attempting to install..."
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        if command -v brew &> /dev/null; then
-            brew install ffmpeg
-        else
-            echo "ERROR: Homebrew not found. Install ffmpeg manually: brew install ffmpeg"
-            exit 1
-        fi
-    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        if command -v apt-get &> /dev/null; then
-            sudo apt-get install -y ffmpeg
-        elif command -v dnf &> /dev/null; then
-            sudo dnf install -y ffmpeg
-        elif command -v pacman &> /dev/null; then
-            sudo pacman -S --noconfirm ffmpeg
-        else
-            echo "ERROR: Could not detect package manager. Install ffmpeg manually."
-            exit 1
-        fi
-    else
-        echo "ERROR: Unsupported OS. Install ffmpeg manually."
-        exit 1
-    fi
-    echo "ffmpeg installed."
-else
-    echo "ffmpeg found."
+    echo ""
+    echo "WARNING: ffmpeg not found. Whisper requires ffmpeg to decode audio files."
+    echo "Install it before running the app:"
+    echo "  macOS:   brew install ffmpeg"
+    echo "  Ubuntu:  sudo apt install ffmpeg"
+    echo ""
 fi
 
 # Create virtual environment

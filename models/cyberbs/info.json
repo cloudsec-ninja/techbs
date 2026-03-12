@@ -1,4 +1,4 @@
 {
-  "domain": "Cybersecurity",
-  "description": "Detects marketing hype and lack of technical depth in cybersecurity talks"
+  "domain": "CyberSecurity",
+  "description": "Model trained on CyberSecurity subjects"
 }

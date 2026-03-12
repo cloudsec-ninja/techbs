@@ -3,9 +3,7 @@ Skip controller for prerecorded audio playback.
 Listens for keypresses in a background thread and signals
 the realtime sync loop to fast-forward.
 """
-import os
 import sys
-import select
 import threading
 
 
@@ -50,7 +48,27 @@ class SkipController:
 
     # ── private ──────────────────────────────────────────────
     def _listen(self):
-        """Read raw keypresses from stdin (Unix only)."""
+        if sys.platform == "win32":
+            self._listen_windows()
+        else:
+            self._listen_unix()
+
+    def _listen_windows(self):
+        import msvcrt
+        import time
+        while not self._quit_event.is_set():
+            if msvcrt.kbhit():
+                ch = msvcrt.getwch()
+                if ch in ("s", "S", "n", "N", " "):
+                    self._skip_event.set()
+                elif ch in ("q", "Q", "\x03"):
+                    self._quit_event.set()
+                    break
+            else:
+                time.sleep(0.05)
+
+    def _listen_unix(self):
+        import select
         import termios
         import tty
 
@@ -67,7 +85,7 @@ class SkipController:
                     ch = sys.stdin.read(1)
                     if ch in ("s", "S", "n", "N", " "):
                         self._skip_event.set()
-                    elif ch in ("q", "Q", "\x03"):  # q or Ctrl-C
+                    elif ch in ("q", "Q", "\x03"):
                         self._quit_event.set()
                         break
         finally:

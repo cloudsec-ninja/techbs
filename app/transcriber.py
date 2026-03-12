@@ -31,7 +31,15 @@ class AudioTranscriber:
         Load an audio file and yield transcribed chunks in order.
         Yields: (chunk_idx, start_sec, end_sec, transcript_text)
         """
-        audio = whisper.load_audio(audio_path)
+        try:
+            audio = whisper.load_audio(audio_path)
+        except FileNotFoundError:
+            raise RuntimeError(
+                "ffmpeg not found. Whisper requires ffmpeg to decode audio files.\n"
+                "  Windows: download from https://ffmpeg.org/download.html and add to PATH\n"
+                "  macOS:   brew install ffmpeg\n"
+                "  Linux:   sudo apt install ffmpeg"
+            ) from None
         total_samples = len(audio)
         chunk_samples = chunk_seconds * SAMPLE_RATE
         num_chunks = max(1, (total_samples + chunk_samples - 1) // chunk_samples)

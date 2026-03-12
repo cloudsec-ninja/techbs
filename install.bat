@@ -3,7 +3,7 @@ echo === CyberBS Installer ===
 
 REM Check Python
 where python >nul 2>&1
-if errorlevel 1 (`
+if errorlevel 1 (
     echo ERROR: Python not found.
     echo Install Python 3.10+ from https://www.python.org/downloads/
     pause
@@ -18,28 +18,23 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Check ffmpeg
+REM Check ffmpeg — hard requirement, Whisper cannot decode audio without it
 where ffmpeg >nul 2>&1
 if errorlevel 1 (
-    echo ffmpeg not found. Attempting to install...
-    where winget >nul 2>&1
-    if not errorlevel 1 (
-        winget install --id Gyan.FFmpeg -e --silent
-        goto ffmpeg_done
-    )
-    where choco >nul 2>&1
-    if not errorlevel 1 (
-        choco install ffmpeg -y
-        goto ffmpeg_done
-    )
-    echo ERROR: Could not install ffmpeg automatically.
-    echo Install manually from https://ffmpeg.org/download.html and add it to your PATH.
+    echo.
+    echo ERROR: ffmpeg is not installed or not in your PATH.
+    echo CyberBS cannot decode audio files without ffmpeg.
+    echo.
+    echo  1. Download ffmpeg for Windows:
+    echo     https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
+    echo  2. Extract and copy ffmpeg.exe to a folder, e.g. C:\ffmpeg\bin\
+    echo  3. Add that folder to your system PATH:
+    echo     Settings - System - Advanced system settings - Environment Variables
+    echo     Edit "Path" under System variables, add C:\ffmpeg\bin
+    echo  4. Re-run this installer.
+    echo.
     pause
     exit /b 1
-    :ffmpeg_done
-    echo ffmpeg installed.
-) else (
-    echo ffmpeg found.
 )
 
 echo Creating virtual environment...
