@@ -43,6 +43,18 @@ python -m venv venv
 echo Installing dependencies (this may take several minutes)...
 call venv\Scripts\activate.bat
 pip install --upgrade pip --quiet
+
+REM Install PyTorch with CUDA if an NVIDIA GPU is present, otherwise CPU-only
+nvidia-smi >nul 2>&1
+if not errorlevel 1 (
+    echo NVIDIA GPU detected -- installing CUDA-enabled PyTorch...
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 --quiet
+) else (
+    echo No NVIDIA GPU detected -- installing CPU-only PyTorch...
+    pip install torch torchvision torchaudio --quiet
+)
+
+REM Install remaining dependencies (torch already satisfied above)
 pip install -r requirements.txt --quiet
 
 echo Downloading Whisper base model...

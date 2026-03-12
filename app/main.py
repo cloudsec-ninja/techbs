@@ -269,6 +269,7 @@ def main():
     model_description = model_info.get("description", "")
     print(f"Loading model: {model_path.name}...")
     analyzer = CyberBSAnalyzer(model_path=str(model_path))
+    print(f"  device: {analyzer.device}")
     print(f"Loading Whisper ({args.whisper_model})...")
 
     # ── microphone mode ───────────────────────────────────────────────────────
