@@ -48,7 +48,7 @@ REM Install PyTorch with CUDA if an NVIDIA GPU is present, otherwise CPU-only
 nvidia-smi >nul 2>&1
 if not errorlevel 1 (
     echo NVIDIA GPU detected -- installing CUDA-enabled PyTorch...
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 --quiet
+    pip install torch torchvision torchaudio --index-url pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu128 --quiet
 ) else (
     echo No NVIDIA GPU detected -- installing CPU-only PyTorch...
     pip install torch torchvision torchaudio --quiet
