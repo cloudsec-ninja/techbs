@@ -1,8 +1,0 @@
-transformers[torch]
-datasets
-scikit-learn
-accelerate
-evaluate
-openai-whisper
-rich
-sounddevice
