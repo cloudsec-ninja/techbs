@@ -3,7 +3,7 @@ echo === CyberBS Installer ===
 
 REM Check Python
 where python >nul 2>&1
-if errorlevel 1 (
+if errorlevel 1 (`
     echo ERROR: Python not found.
     echo Install Python 3.10+ from https://www.python.org/downloads/
     pause
@@ -21,10 +21,25 @@ if errorlevel 1 (
 REM Check ffmpeg
 where ffmpeg >nul 2>&1
 if errorlevel 1 (
-    echo.
-    echo WARNING: ffmpeg not found. Whisper requires ffmpeg to decode audio files.
-    echo Download from https://ffmpeg.org/download.html and add it to your PATH.
-    echo.
+    echo ffmpeg not found. Attempting to install...
+    where winget >nul 2>&1
+    if not errorlevel 1 (
+        winget install --id Gyan.FFmpeg -e --silent
+        goto ffmpeg_done
+    )
+    where choco >nul 2>&1
+    if not errorlevel 1 (
+        choco install ffmpeg -y
+        goto ffmpeg_done
+    )
+    echo ERROR: Could not install ffmpeg automatically.
+    echo Install manually from https://ffmpeg.org/download.html and add it to your PATH.
+    pause
+    exit /b 1
+    :ffmpeg_done
+    echo ffmpeg installed.
+) else (
+    echo ffmpeg found.
 )
 
 echo Creating virtual environment...
