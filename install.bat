@@ -38,20 +38,25 @@ if errorlevel 1 (
 )
 
 echo Creating virtual environment...
-python -m venv venv
+if not exist venv python -m venv venv
 
 echo Installing dependencies (this may take several minutes)...
 call venv\Scripts\activate.bat
 pip install --upgrade pip --quiet
 
 REM Install PyTorch with CUDA if an NVIDIA GPU is present, otherwise CPU-only
-nvidia-smi >nul 2>&1
+REM Check nvidia-smi in PATH and common fallback location
+set NVIDIA_SMI=nvidia-smi
+if not exist "%NVIDIA_SMI%.exe" (
+    if exist "C:\Windows\System32\nvidia-smi.exe" set NVIDIA_SMI=C:\Windows\System32\nvidia-smi
+)
+%NVIDIA_SMI% >nul 2>&1
 if not errorlevel 1 (
     echo NVIDIA GPU detected -- installing CUDA-enabled PyTorch...
-    pip install torch torchvision torchaudio --index-url pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu128 --quiet
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128 --force-reinstall --quiet
 ) else (
     echo No NVIDIA GPU detected -- installing CPU-only PyTorch...
-    pip install torch torchvision torchaudio --quiet
+    pip install torch torchvision --quiet
 )
 
 REM Install remaining dependencies (torch already satisfied above)
