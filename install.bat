@@ -4,7 +4,7 @@ REM ── Azure model storage ────────────────�
 REM Replace the value below with your full Azure Blob container URL including
 REM the embedded SAS token before distributing.
 REM   e.g. https://mystorageaccount.blob.core.windows.net/cyberbs-models?sv=2022-11-02^&ss=b^&sp=rl^&sig=XXXXX
-set MODEL_URL=https://ddffrrrsseee.blob.core.windows.net/models?sp=r&st=2026-03-13T16:33:34Z&se=2026-04-01T00:48:34Z&spr=https&sv=2024-11-04&sr=c&sig=JBTS98EUpLsGkDLG0XHY7ltrfhsi28aNKj7gzT4%2BZ1c%3D
+set MODEL_URL="https://ddffrrrsseee.blob.core.windows.net/models?sp=r&st=2026-03-13T16:33:34Z&se=2026-04-01T00:48:34Z&spr=https&sv=2024-11-04&sr=c&sig=JBTS98EUpLsGkDLG0XHY7ltrfhsi28aNKj7gzT4%2BZ1c%3D"
 REM ─────────────────────────────────────────────────────────────────────────────
 
 echo === CyberBS Installer ===
