@@ -1,10 +1,10 @@
 # CyberBS — Real-Time BS Detector for Cybersecurity Talks
 
-CyberBS listens to a cybersecurity conference talk (audio file or live mic) and classifies each segment of speech in real time into one of three verdicts:
+CyberBS listens to a cybersecurity conference talk or conversations (audio file or live mic) and classifies each segment of speech in real time into one of three verdicts:
 
 | Verdict | Meaning |
 |---------|---------|
-| **Signal** | Real technical content — depth, specifics, substance |
+| **Legit** | Real technical content — depth, specifics, substance |
 | **Neutral** | Off-topic material — intros, logistics, small talk |
 | **BS** | Marketing hype, buzzwords, vague claims with no technical backing |
 
