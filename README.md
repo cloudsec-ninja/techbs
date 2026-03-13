@@ -117,16 +117,7 @@ Omit `<audio_file>` when using `--mic` for live microphone input.
 
 When `--summarize` is passed, CyberBS sends the full transcript and per-chunk verdicts to an LLM and asks it to write a plain-English assessment of the talk's signal-to-noise ratio.
 
-### Providers
-
-| Provider | Setup | Default model |
-|----------|-------|---------------|
-| **Ollama** (local, free) | Install [Ollama](https://ollama.com), then `ollama pull llama3.2` | Selected interactively |
-| **Claude** | Set `ANTHROPIC_API_KEY` environment variable | `claude-sonnet-4-6` |
-| **OpenAI** | Set `OPENAI_API_KEY` environment variable | `gpt-4o` |
-| **Gemini** | Set `GOOGLE_API_KEY` environment variable | `gemini-2.0-flash` |
-
-Your preferred provider and model are saved to `~/.cyberbs/llm_config.json` after installation (or on first use). Run the installer again to change them.
+Your LLM provider and model are configured during installation and saved to `~/.cyberbs/llm_config.json`. Run the installer again to change them.
 
 The transcript JSON is created automatically during summarization and deleted afterwards unless you also pass `--transcript`.
 
