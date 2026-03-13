@@ -5,7 +5,7 @@ set -e
 # Replace the value below with your full Azure Blob container URL including
 # the embedded SAS token before distributing.
 #   e.g. https://mystorageaccount.blob.core.windows.net/cyberbs-models?sv=2022-11-02&ss=b&sp=rl&sig=XXXXX
-AZURE_MODEL_URL="REPLACE_WITH_AZURE_URL"
+MODEL_URL="https://ddffrrrsseee.blob.core.windows.net/models/model.safetensors?sp=r&st=2026-03-13T16:06:18Z&se=2026-04-01T00:21:18Z&spr=https&sv=2024-11-04&sr=b&sig=VqzQDb8jImlqQVEgirhxr5HMckreB%2BNDbfJojLz58ng%3D"
 # ─────────────────────────────────────────────────────────────────────────────
 
 echo "=== CyberBS Installer ==="
@@ -53,7 +53,7 @@ echo "Downloading Whisper base model..."
 python -c "import whisper; whisper.load_model('base'); print('Whisper model cached.')"
 
 # Download CyberBS model weights from Azure
-if [ "$AZURE_MODEL_URL" = "REPLACE_WITH_AZURE_URL" ]; then
+if [ "$MODEL_URL" = "REPLACE_WITH_AZURE_URL" ]; then
     echo ""
     echo "WARNING: Azure model URL not configured in installer."
     echo "         Models must be placed in the models/ folder manually."
@@ -61,7 +61,7 @@ else
     echo "Downloading CyberBS models from Azure..."
     python app/model_downloader.py \
         --model cyberbs \
-        --url "$AZURE_MODEL_URL" \
+        --url "$MODEL_URL" \
         --models-dir models
 fi
 
