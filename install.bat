@@ -3,13 +3,11 @@
 REM ── Azure model storage ───────────────────────────────────────────────────────
 REM Replace the value below with your full Azure Blob container URL including
 REM the embedded SAS token before distributing.
-REM Use the  set "VAR=value"  form (quotes wrap the whole assignment) so that
-REM the & characters in the SAS token are NOT treated as CMD command separators.
-REM   e.g. set "MODEL_URL=https://mystorageaccount.blob.core.windows.net/cyberbs-models?sv=2022-11-02&ss=b&sp=rl&sig=XXXXX"
-set "MODEL_URL=https://ddffrrrsseee.blob.core.windows.net/models?sp=r&st=2026-03-13T16:33:34Z&se=2026-04-01T00:48:34Z&spr=https&sv=2024-11-04&sr=c&sig=JBTS98EUpLsGkDLG0XHY7ltrfhsi28aNKj7gzT4%%2BZ1c%%3D"
+REM   e.g. https://mystorageaccount.blob.core.windows.net/cyberbs-models?sv=2022-11-02^&ss=b^&sp=rl^&sig=XXXXX
+set AZURE_MODEL_URL=REPLACE_WITH_AZURE_URL
 REM ─────────────────────────────────────────────────────────────────────────────
 
-echo === CyberBS Installer ===
+echo === TechBS Installer ===
 
 REM Check Python
 where python >nul 2>&1
@@ -33,7 +31,7 @@ where ffmpeg >nul 2>&1
 if errorlevel 1 (
     echo.
     echo ERROR: ffmpeg is not installed or not in your PATH.
-    echo CyberBS cannot decode audio files without ffmpeg.
+    echo TechBS cannot decode audio files without ffmpeg.
     echo.
     echo  1. Download ffmpeg for Windows:
     echo     https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
@@ -75,14 +73,14 @@ pip install -r requirements.txt --quiet
 echo Downloading Whisper base model...
 python -c "import whisper; whisper.load_model('base'); print('Whisper model cached.')"
 
-REM Download CyberBS model weights from Azure
-if "%MODEL_URL%"=="REPLACE_WITH_AZURE_URL" (
+REM Download TechBS model weights from Azure
+if "%AZURE_MODEL_URL%"=="REPLACE_WITH_AZURE_URL" (
     echo.
     echo WARNING: Azure model URL not configured in installer.
     echo          Models must be placed in the models\ folder manually.
 ) else (
-    echo Downloading CyberBS models from Azure...
-    python app\model_downloader.py --model cyberbs --url "%MODEL_URL%" --models-dir models
+    echo Downloading TechBS models from Azure...
+    python app\model_downloader.py --model cyberbs --url "%AZURE_MODEL_URL%" --models-dir models
 )
 
 call deactivate
@@ -113,8 +111,8 @@ set LLM_PROVIDER=ollama
 echo.
 REM Write a Python selector that: prints display to stderr, prints chosen model name to stdout
 REM This lets us capture only the model name while the user sees the list and prompt normally.
-set OLPY=%TEMP%\cyberbs_ol.py
-set OLOUT=%TEMP%\cyberbs_ol_out.txt
+set OLPY=%TEMP%\techbs_ol.py
+set OLOUT=%TEMP%\techbs_ol_out.txt
 echo import urllib.request,json,sys > "%OLPY%"
 echo try: >> "%OLPY%"
 echo     r=urllib.request.urlopen('http://localhost:11434/api/tags',timeout=2).read() >> "%OLPY%"
@@ -169,8 +167,8 @@ if "%LLM_MODEL%"=="" set LLM_MODEL=gemini-2.0-flash
 goto :llm_save
 
 :llm_save
-if not exist "%USERPROFILE%\.cyberbs" mkdir "%USERPROFILE%\.cyberbs"
-python -c "import json; json.dump({'provider':'%LLM_PROVIDER%','model':'%LLM_MODEL%'},open(r'%USERPROFILE%\.cyberbs\llm_config.json','w'),indent=2)"
+if not exist "%USERPROFILE%\.techbs" mkdir "%USERPROFILE%\.techbs"
+python -c "import json; json.dump({'provider':'%LLM_PROVIDER%','model':'%LLM_MODEL%'},open(r'%USERPROFILE%\.techbs\llm_config.json','w'),indent=2)"
 echo Saved: %LLM_PROVIDER% / %LLM_MODEL%
 
 REM Install the provider's Python package into the venv

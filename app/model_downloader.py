@@ -8,16 +8,12 @@ Usage:
 """
 import argparse
 import sys
-import urllib.error
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 # Files required to run inference
 MODEL_FILES = [
-    "config.json",
-    "tokenizer_config.json",
-    "tokenizer.json",
     "model.safetensors",
 ]
 
@@ -60,15 +56,6 @@ def download_model(model_name: str, container_url: str, models_root: Path) -> No
         try:
             urllib.request.urlretrieve(url, dest, reporthook=_progress(filename))
             sys.stdout.write("\n")
-        except urllib.error.HTTPError as exc:
-            sys.stdout.write("\n")
-            if dest.exists():
-                dest.unlink()
-            if exc.code == 404:
-                print(f"  {filename} — not found in blob storage, skipping.")
-                continue
-            print(f"  ERROR downloading {filename}: {exc}", file=sys.stderr)
-            raise SystemExit(1)
         except Exception as exc:
             sys.stdout.write("\n")
             if dest.exists():

@@ -7,7 +7,7 @@ torch
 torchvision
 openai-whisper
 rich
-sounddevice
+sounddevice  # --mic mode; also needs system lib: Linux: sudo apt install libportaudio2 | macOS: brew install portaudio
 # optional LLM summary providers (install whichever you use):
 # pip install anthropic        (--llm-provider claude)
 # pip install openai           (--llm-provider openai)

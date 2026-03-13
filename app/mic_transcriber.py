@@ -7,7 +7,9 @@ is busy with inference.
 
 Requires: pip install sounddevice
 macOS:    brew install portaudio
+Linux:    sudo apt install libportaudio2
 """
+import platform
 import queue
 import threading
 from typing import Iterator
@@ -19,6 +21,15 @@ import whisper
 SAMPLE_RATE = 16_000
 
 
+def _portaudio_hint() -> str:
+    system = platform.system()
+    if system == "Darwin":
+        return "  macOS:  brew install portaudio"
+    if system == "Linux":
+        return "  Linux:  sudo apt install libportaudio2"
+    return "  Install the PortAudio library for your OS, then retry."
+
+
 def _check_sounddevice():
     try:
         import sounddevice as sd
@@ -27,9 +38,17 @@ def _check_sounddevice():
         return sd
     except ImportError:
         raise RuntimeError(
-            "sounddevice is not installed. Run: pip install sounddevice\n"
-            "macOS also needs: brew install portaudio"
+            "sounddevice is not installed.\n"
+            "  Run:    pip install sounddevice\n"
+            + _portaudio_hint()
         )
+    except OSError as e:
+        if "PortAudio" in str(e):
+            raise RuntimeError(
+                "PortAudio library not found. Install it first, then retry.\n"
+                + _portaudio_hint()
+            )
+        raise RuntimeError(f"sounddevice failed to initialise: {e}")
     except Exception as e:
         raise RuntimeError(f"sounddevice failed to initialise: {e}")
 

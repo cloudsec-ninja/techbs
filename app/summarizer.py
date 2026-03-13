@@ -1,5 +1,5 @@
 """
-LLM summary for CyberBS transcript data.
+LLM summary for TechBS transcript data.
 Supported providers: ollama (local, default), claude, openai, gemini
 """
 import json
@@ -20,7 +20,7 @@ DEFAULT_MODELS = {
 }
 
 OLLAMA_BASE = "http://localhost:11434"
-CONFIG_PATH = Path.home() / ".cyberbs" / "llm_config.json"
+CONFIG_PATH = Path.home() / ".techbs" / "llm_config.json"
 
 
 def load_llm_config() -> dict:
@@ -100,7 +100,7 @@ class LLMSummarizer:
     def _build_prompt(self, data: dict) -> str:
         s = data["summary"]
         lines = [
-            "You are reviewing a cybersecurity conference talk scored by CyberBS, an automated BS detector.\n",
+            "You are reviewing a tech talk scored by TechBS, an automated BS detector.\n",
             "Scoring labels:",
             "  LEGIT:   Technical depth, real actionable content, specific details",
             "  NEUTRAL: Off-topic, introductions, small talk, logistics",
@@ -144,7 +144,7 @@ class LLMSummarizer:
             "    - Explain WHY the model scored it that way, not just what it scored",
             "    - Call out any nuances or edge cases",
             "      (e.g. a chunk that lists real tools but is still scored BS because it lacks technical depth)\n",
-            "**Conclusion** — One sentence on the talk's practical value to a working cybersecurity professional.",
+            "**Conclusion** — One sentence on the talk's practical value to a working tech professional.",
         ]
 
         return "\n".join(lines)

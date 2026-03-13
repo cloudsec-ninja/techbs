@@ -5,10 +5,10 @@ set -e
 # Replace the value below with your full Azure Blob container URL including
 # the embedded SAS token before distributing.
 #   e.g. https://mystorageaccount.blob.core.windows.net/cyberbs-models?sv=2022-11-02&ss=b&sp=rl&sig=XXXXX
-MODEL_URL="https://ddffrrrsseee.blob.core.windows.net/models?sp=r&st=2026-03-13T16:33:34Z&se=2026-04-01T00:48:34Z&spr=https&sv=2024-11-04&sr=c&sig=JBTS98EUpLsGkDLG0XHY7ltrfhsi28aNKj7gzT4%2BZ1c%3D"
+AZURE_MODEL_URL="REPLACE_WITH_AZURE_URL"
 # ─────────────────────────────────────────────────────────────────────────────
 
-echo "=== CyberBS Installer ==="
+echo "=== TechBS Installer ==="
 
 # Check Python 3.10+
 PYTHON=$(command -v python3 || command -v python)
@@ -38,6 +38,15 @@ if ! command -v ffmpeg &> /dev/null; then
     exit 1
 fi
 
+# Install PortAudio on Linux if needed (required by sounddevice for --mic)
+if [[ "$(uname)" == "Linux" ]]; then
+    if ! ldconfig -p 2>/dev/null | grep -q libportaudio; then
+        echo "Installing libportaudio2 (required for --mic)..."
+        sudo apt-get install -y libportaudio2 2>/dev/null || \
+            echo "WARNING: Could not install libportaudio2. Run: sudo apt install libportaudio2"
+    fi
+fi
+
 # Create virtual environment
 echo "Creating virtual environment..."
 $PYTHON -m venv venv
@@ -52,16 +61,16 @@ pip install -r requirements.txt --quiet
 echo "Downloading Whisper base model..."
 python -c "import whisper; whisper.load_model('base'); print('Whisper model cached.')"
 
-# Download CyberBS model weights from Azure
-if [ "$MODEL_URL" = "REPLACE_WITH_AZURE_URL" ]; then
+# Download TechBS model weights from Azure
+if [ "$AZURE_MODEL_URL" = "REPLACE_WITH_AZURE_URL" ]; then
     echo ""
     echo "WARNING: Azure model URL not configured in installer."
     echo "         Models must be placed in the models/ folder manually."
 else
-    echo "Downloading CyberBS models from Azure..."
+    echo "Downloading TechBS models from Azure..."
     python app/model_downloader.py \
         --model cyberbs \
-        --url "$MODEL_URL" \
+        --url "$AZURE_MODEL_URL" \
         --models-dir models
 fi
 
@@ -131,9 +140,9 @@ except:
             LLM_MODEL="${LLM_MODEL:-gemini-2.0-flash}"
         fi
 
-        mkdir -p "$HOME/.cyberbs"
+        mkdir -p "$HOME/.techbs"
         printf '{"provider":"%s","model":"%s"}\n' "$LLM_PROVIDER" "$LLM_MODEL" \
-            > "$HOME/.cyberbs/llm_config.json"
+            > "$HOME/.techbs/llm_config.json"
         echo "Saved: $LLM_PROVIDER / $LLM_MODEL"
 
         # Install the provider's Python package into the venv

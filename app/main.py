@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CyberBS Conference Analyzer
+TechBS Analyzer
 Usage:
     python main.py <audio_file> [--whisper-model base] [--chunk-seconds 15]
 """
@@ -19,7 +19,7 @@ from typing import Iterator
 # Ensure imports work when run from any directory
 sys.path.insert(0, str(Path(__file__).parent))
 
-from analyzer import CyberBSAnalyzer
+from analyzer import TechBSAnalyzer
 from version import VERSION
 from mic_transcriber import MicTranscriber
 from rich.console import Console
@@ -28,7 +28,7 @@ from rich import box
 from skip import SkipController
 from summarizer import LLMSummarizer, load_llm_config
 from transcriber import AudioTranscriber
-from ui import CyberBSUI
+from ui import TechBSUI
 
 MODELS_DIR = Path(__file__).parent.parent / "models"
 
@@ -228,7 +228,7 @@ def _run_summarizer(summarizer, transcript_path, keep: bool) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="CyberBS — Real-time conference talk BS detector"
+        description="TechBS — Real-Time BS Detection for Tech"
     )
     parser.add_argument(
         "audio",
@@ -251,11 +251,6 @@ def main():
         type=int,
         default=15,
         help="Seconds of audio per analysis chunk (default: 15)",
-    )
-    parser.add_argument(
-        "--model-path",
-        default=None,
-        help="Path to a classification model directory (skips interactive selection)",
     )
     parser.add_argument(
         "--no-play",
@@ -285,19 +280,15 @@ def main():
     )
     args = parser.parse_args()
 
-    print(f"CyberBS v{VERSION}")
+    print(f"TechBS v{VERSION}")
 
     if not args.mic and not args.audio:
         parser.error("provide an audio file or use --mic for live microphone input")
 
-    if args.model_path:
-        model_path = Path(args.model_path)
-        model_info = load_model_info(model_path)
-    else:
-        model_path, model_info = select_model()
+    model_path, model_info = select_model()
     model_description = model_info.get("description", "")
     print(f"Loading model: {model_path.name}...")
-    analyzer = CyberBSAnalyzer(model_path=str(model_path))
+    analyzer = TechBSAnalyzer(model_path=str(model_path))
     print(f"  device: {analyzer.device}")
     print(f"Loading Whisper ({args.whisper_model})...")
 
@@ -330,7 +321,7 @@ def main():
             chunk_seconds=args.chunk_seconds,
         )
         mic.start()  # begin recording immediately while UI initialises
-        ui = CyberBSUI(filename="Live Microphone", model_name=model_path.name, model_description=model_description)
+        ui = TechBSUI(filename="Live Microphone", model_name=model_path.name, model_description=model_description)
         skipper = SkipController()
         skipper.start()
         try:
@@ -348,7 +339,7 @@ def main():
         sys.exit(1)
 
     transcriber = AudioTranscriber(model_size=args.whisper_model)
-    ui = CyberBSUI(filename=audio_path.name, model_name=model_path.name, model_description=model_description)
+    ui = TechBSUI(filename=audio_path.name, model_name=model_path.name, model_description=model_description)
 
     skipper = None
     player = None

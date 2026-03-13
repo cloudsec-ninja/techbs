@@ -1,8 +1,8 @@
 """
-CyberBS model wrapper — 3-label classifier:
-  0 = Signal  : real technical cybersecurity content
-  1 = Neutral : not about cybersecurity (greetings, logistics, small talk)
-  2 = BS      : cybersecurity-related but fluffy (marketing, hype, no depth)
+TechBS model wrapper — 3-label classifier:
+  0 = Signal  : real technical content with depth
+  1 = Neutral : off-topic (greetings, logistics, small talk)
+  2 = BS      : domain-related but fluffy (marketing, hype, no depth)
 """
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
@@ -12,7 +12,7 @@ MAX_TOKENS = 512
 LABELS = {0: "signal", 1: "neutral", 2: "bs"}
 
 
-class CyberBSAnalyzer:
+class TechBSAnalyzer:
     def __init__(self, model_path: str):
         if torch.cuda.is_available():
             self.device = torch.device("cuda")

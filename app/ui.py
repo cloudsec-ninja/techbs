@@ -1,5 +1,5 @@
 """
-Rich terminal UI for the CyberBS live analyzer — 3-label version.
+Rich terminal UI for the TechBS live analyzer — 3-label version.
 Labels: signal (green) | neutral (blue) | bs (red)
 """
 import json
@@ -144,7 +144,7 @@ def _verdict_panel(state: UIState) -> Panel:
         content.append(f"  {state.skip_hint}\n", style="dim cyan")
 
     model_tag = f" [dim]· {state.model_name}[/]" if state.model_name else ""
-    return Panel(content, title=f"[bold cyan]CyberBS Meter[/]{model_tag}", border_style="cyan")
+    return Panel(content, title=f"[bold cyan]TechBS Meter[/]{model_tag}", border_style="cyan")
 
 
 def _transcript_panel(state: UIState) -> Panel:
@@ -214,7 +214,7 @@ def make_layout(state: UIState) -> Layout:
 
 # ── main UI class ─────────────────────────────────────────────────────────────
 
-class CyberBSUI:
+class TechBSUI:
     def __init__(self, filename: str, model_name: str = "", model_description: str = ""):
         self.state = UIState(filename=filename, model_name=model_name, model_description=model_description)
         self.console = Console()
@@ -279,7 +279,7 @@ class CyberBSUI:
         # Ignore neutral (off-topic) chunks when judging quality
         content_chunks = total - len(by_label["neutral"])
         if content_chunks == 0:
-            return "NO CYBERSECURITY CONTENT", "bold blue"
+            return "NO TECHNICAL CONTENT", "bold blue"
 
         sig_of_content = len(by_label["signal"]) / content_chunks
         bs_of_content  = len(by_label["bs"])      / content_chunks
@@ -316,7 +316,7 @@ class CyberBSUI:
         rating_text, rating_style = self._overall_rating(by_label, total)
 
         model_tag = f" [dim]· {self.state.model_name}[/]" if self.state.model_name else ""
-        self.console.rule(f"[bold cyan]CyberBS Final Report[/]{model_tag}")
+        self.console.rule(f"[bold cyan]TechBS Final Report[/]{model_tag}")
         self.console.print(f"\n[bold]File:[/] {self.state.filename}")
         self.console.print(f"[bold]Duration:[/] {chunks[-1].end:.0f}s  ·  [bold]Chunks analyzed:[/] {total}\n")
 
@@ -339,7 +339,7 @@ class CyberBSUI:
         """Save full transcript and scores to a JSON file for later LLM analysis."""
         stem = Path(self.state.filename).stem
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_path = Path(f"{stem}_{ts}_cyberbs.json")
+        out_path = Path(f"{stem}_{ts}_techbs.json")
 
         total = len(chunks)
         by_label: dict[str, list] = {"signal": [], "neutral": [], "bs": []}
