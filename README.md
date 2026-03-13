@@ -1,4 +1,4 @@
-# CyberBS — Real-Time BS Detector for Cybersecurity Talks
+# CyberBS — Real-Time BS Detector for Cybersecurity
 
 CyberBS listens to a cybersecurity conference talk or conversations (audio file or live mic) and classifies each segment of speech in real time into one of three verdicts:
 
