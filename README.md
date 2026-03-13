@@ -77,9 +77,7 @@ Omit `<audio_file>` when using `--mic` for live microphone input.
 | `--mic` | off | Analyse live microphone input instead of a file |
 | `--no-play` | off | Skip audio playback — transcribe and analyse only |
 | `--transcript` | off | Save a JSON transcript file when done |
-| `--summarize` | off | Generate an LLM-written summary of the analysis |
-| `--llm-provider` | `ollama` | LLM provider for `--summarize`: `ollama`, `claude`, `openai`, `gemini` |
-| `--llm-model MODEL` | *(provider default)* | Override the model used by the selected provider |
+| `--summarize` | off | Generate an LLM-written summary of the analysis (provider configured during install) |
 | `--chunk-seconds N` | `15` | Length of each analysis chunk in seconds |
 | `--whisper-model SIZE` | `base` | Whisper model size: `tiny`, `base`, `small`, `medium`, `large` |
 | `--model-path PATH` | *(interactive)* | Path to a classification model directory — skips the selection prompt |
@@ -99,9 +97,6 @@ Omit `<audio_file>` when using `--mic` for live microphone input.
 
 # Analyse and get an LLM summary (uses your configured provider)
 ./run.sh --summarize keynote.m4a
-
-# Force Claude as the summary provider
-./run.sh --summarize --llm-provider claude keynote.m4a
 
 # Summary + save transcript
 ./run.sh --summarize --transcript keynote.m4a
