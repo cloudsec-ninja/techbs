@@ -20,11 +20,13 @@ from typing import Iterator
 sys.path.insert(0, str(Path(__file__).parent))
 
 from analyzer import CyberBSAnalyzer
+from version import VERSION
 from mic_transcriber import MicTranscriber
 from rich.console import Console
 from rich.table import Table
 from rich import box
 from skip import SkipController
+from summarizer import LLMSummarizer, load_llm_config
 from transcriber import AudioTranscriber
 from ui import CyberBSUI
 
@@ -215,6 +217,15 @@ def realtime_sync(
                 time.sleep(wait)
 
 
+def _run_summarizer(summarizer, transcript_path, keep: bool) -> None:
+    """Call the LLM summarizer then delete the transcript if the user didn't ask to keep it."""
+    if summarizer is None or transcript_path is None:
+        return
+    summarizer.summarize(transcript_path)
+    if not keep:
+        transcript_path.unlink(missing_ok=True)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="CyberBS — Real-time conference talk BS detector"
@@ -256,7 +267,25 @@ def main():
         action="store_true",
         help="Save full transcript and scores to a JSON file after analysis",
     )
+    parser.add_argument(
+        "--summarize",
+        action="store_true",
+        help="Generate an LLM summary of the analysis after completion",
+    )
+    parser.add_argument(
+        "--llm-provider",
+        default=None,
+        choices=["ollama", "claude", "openai", "gemini"],
+        help="LLM provider for --summarize (default: ollama)",
+    )
+    parser.add_argument(
+        "--llm-model",
+        default=None,
+        help="Model name override for the selected LLM provider",
+    )
     args = parser.parse_args()
+
+    print(f"CyberBS v{VERSION}")
 
     if not args.mic and not args.audio:
         parser.error("provide an audio file or use --mic for live microphone input")
@@ -272,6 +301,28 @@ def main():
     print(f"  device: {analyzer.device}")
     print(f"Loading Whisper ({args.whisper_model})...")
 
+    # ── LLM summarizer setup (before analysis so model selection doesn't interrupt results) ──
+    summarizer = None
+    if args.summarize:
+        # Resolve provider/model: CLI flags > saved config > default (ollama)
+        cfg = load_llm_config()
+        provider = args.llm_provider or cfg.get("provider", "ollama")
+        model    = args.llm_model    or cfg.get("model")
+
+        summarizer = LLMSummarizer(provider=provider, model=model)
+
+        if provider == "ollama" and not model:
+            # No saved model yet — show picker (will save after selection)
+            summarizer.model = summarizer.select_ollama_model()
+        else:
+            summarizer.console.print(
+                f"[dim]LLM: {provider} / {summarizer.model}"
+                + (" (saved preference)" if cfg else "") + "[/]"
+            )
+
+    # Transcript must be saved if we need it for the LLM summary
+    need_transcript = args.transcript or args.summarize
+
     # ── microphone mode ───────────────────────────────────────────────────────
     if args.mic:
         mic = MicTranscriber(
@@ -283,10 +334,11 @@ def main():
         skipper = SkipController()
         skipper.start()
         try:
-            ui.run(mic.transcribe_chunks(stop_event=skipper.quit_event), analyzer, skipper, save_transcript=args.transcript)
+            transcript_path = ui.run(mic.transcribe_chunks(stop_event=skipper.quit_event), analyzer, skipper, save_transcript=need_transcript)
         finally:
             skipper.stop()
             mic.stop()
+        _run_summarizer(summarizer, transcript_path, keep=args.transcript)
         return
 
     # ── file mode ─────────────────────────────────────────────────────────────
@@ -321,13 +373,21 @@ def main():
         chunk_gen = transcriber.transcribe_chunks(str(audio_path), args.chunk_seconds)
 
     try:
-        ui.run(chunk_gen, analyzer, skipper, save_transcript=args.transcript)
+        transcript_path = ui.run(chunk_gen, analyzer, skipper, save_transcript=need_transcript)
     finally:
         if skipper:
             skipper.stop()
         if player:
             player.stop()
 
+    _run_summarizer(summarizer, transcript_path, keep=args.transcript)
+
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        # Ensure terminal is restored if Rich's alternate screen didn't exit cleanly
+        from rich.console import Console
+        Console().print("\n[dim]Interrupted.[/]")
+        raise SystemExit(0)

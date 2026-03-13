@@ -219,14 +219,15 @@ class CyberBSUI:
         self.state = UIState(filename=filename, model_name=model_name, model_description=model_description)
         self.console = Console()
 
-    def run(self, chunk_iterator, analyzer, skipper: "SkipController | None" = None, save_transcript: bool = False):
+    def run(self, chunk_iterator, analyzer, skipper: "SkipController | None" = None, save_transcript: bool = False) -> Optional[Path]:
         is_live = self.state.filename == "Live Microphone"
         if skipper:
             self.state.skip_hint = "[Q] Quit" if is_live else "[S/Space] Skip chunk  [Q] Quit"
 
         self._save_transcript = save_transcript
+        self._transcript_path: Optional[Path] = None
 
-        with Live(make_layout(self.state), console=self.console, refresh_per_second=4, screen=True) as live:
+        with Live(make_layout(self.state), console=self.console, refresh_per_second=4, screen=False) as live:
             self.state.status = "Listening on microphone..." if is_live else "Analyzing..."
             live.update(make_layout(self.state))
 
@@ -267,6 +268,7 @@ class CyberBSUI:
                 # Live context manager exits cleanly — terminal is restored before we return
 
         self._print_summary()
+        return self._transcript_path
 
     def _overall_rating(self, by_label: dict, total: int) -> tuple[str, str]:
         """Return (rating_text, rich_style) based on label distribution."""
@@ -330,8 +332,8 @@ class CyberBSUI:
         )
 
         if self._save_transcript:
-            out_path = self._save_analysis(chunks, rating_text)
-            self.console.print(f"[dim]Transcript saved → {out_path}[/]\n")
+            self._transcript_path = self._save_analysis(chunks, rating_text)
+            self.console.print(f"[dim]Transcript saved → {self._transcript_path}[/]\n")
 
     def _save_analysis(self, chunks: list, rating: str) -> Path:
         """Save full transcript and scores to a JSON file for later LLM analysis."""
@@ -375,5 +377,5 @@ class CyberBSUI:
             ],
         }
 
-        out_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+        out_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         return out_path

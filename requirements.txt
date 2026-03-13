@@ -8,3 +8,7 @@ torchvision
 openai-whisper
 rich
 sounddevice
+# optional LLM summary providers (install whichever you use):
+# pip install anthropic        (--llm-provider claude)
+# pip install openai           (--llm-provider openai)
+# pip install google-genai     (--llm-provider gemini)
