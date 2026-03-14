@@ -1,13 +1,17 @@
 """
-Downloads CyberBS model files from Azure Blob Storage.
+Downloads TechBS model weights from Azure Blob Storage.
 Called by install.sh / install.bat during setup.
 
+Auto-discovers model directories under models/ and downloads any missing
+model.safetensors files. Only downloads a model if it exists on storage.
+
 Usage:
-    python model_downloader.py --model cyberbs \
+    python model_downloader.py \
         --url "https://account.blob.core.windows.net/container?sv=...&sig=..."
 """
 import argparse
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -34,16 +38,27 @@ def _progress(label: str):
     return hook
 
 
-def download_model(model_name: str, container_url: str, models_root: Path) -> None:
+def _blob_exists(url: str) -> bool:
+    """HEAD request to check whether a blob exists without downloading it."""
+    req = urllib.request.Request(url, method="HEAD")
+    try:
+        urllib.request.urlopen(req, timeout=10)
+        return True
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return False
+        raise
+
+
+def discover_models(models_root: Path) -> list:
+    """Return names of all subdirectories present in models_root."""
+    if not models_root.is_dir():
+        return []
+    return sorted(p.name for p in models_root.iterdir() if p.is_dir())
+
+
+def download_model(model_name: str, base: str, sas: str, models_root: Path) -> None:
     dest_dir = models_root / model_name
-    dest_dir.mkdir(parents=True, exist_ok=True)
-
-    # Split the container URL into base path and query string (SAS token)
-    parts = urlsplit(container_url)
-    base = urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
-    sas  = ("?" + parts.query) if parts.query else ""
-
-    print(f"\nDownloading model: {model_name}")
 
     for filename in MODEL_FILES:
         dest = dest_dir / filename
@@ -52,6 +67,11 @@ def download_model(model_name: str, container_url: str, models_root: Path) -> No
             continue
 
         url = f"{base}/{model_name}/{filename}{sas}"
+
+        if not _blob_exists(url):
+            print(f"  {model_name}/{filename} — not found on storage, skipping.")
+            return
+
         print(f"  {filename}")
         try:
             urllib.request.urlretrieve(url, dest, reporthook=_progress(filename))
@@ -63,18 +83,30 @@ def download_model(model_name: str, container_url: str, models_root: Path) -> No
             print(f"  ERROR downloading {filename}: {exc}", file=sys.stderr)
             raise SystemExit(1)
 
-    print(f"  Model '{model_name}' ready.\n")
+    print(f"  Model '{model_name}' ready.")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Download CyberBS model from Azure Blob Storage")
-    parser.add_argument("--model",      required=True, help="Model folder name (e.g. cyberbs)")
+    parser = argparse.ArgumentParser(description="Download TechBS model weights from Azure Blob Storage")
     parser.add_argument("--url",        required=True, help="Full Azure container URL with embedded SAS token")
     parser.add_argument("--models-dir", default=None,  help="Path to models directory (default: ../models relative to this script)")
     args = parser.parse_args()
 
     models_root = Path(args.models_dir) if args.models_dir else Path(__file__).parent.parent / "models"
-    download_model(args.model, args.url, models_root)
+
+    models = discover_models(models_root)
+    if not models:
+        print("No model directories found — nothing to download.")
+        return
+
+    parts = urlsplit(args.url)
+    base = urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
+    sas  = ("?" + parts.query) if parts.query else ""
+
+    print(f"Checking {len(models)} model(s): {', '.join(models)}")
+    for model_name in models:
+        print(f"\nModel: {model_name}")
+        download_model(model_name, base, sas, models_root)
 
 
 if __name__ == "__main__":
