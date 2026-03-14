@@ -13,7 +13,7 @@
 # ── Azure model storage ───────────────────────────────────────────────────────
 # Replace the value below with your full Azure Blob container URL including
 # the embedded SAS token before distributing.
-$AzureModelUrl = "REPLACE_WITH_AZURE_URL"
+$AzureModelUrl = "https://ddffrrrsseee.blob.core.windows.net/models?sp=r&st=2026-03-14T18:13:10Z&se=2026-04-01T02:28:10Z&spr=https&sv=2024-11-04&sr=c&sig=E0TDvGmNUYCNW9MeW8KgAsI6JMk9BmI66EkisaIQIFQ%3D"
 # ─────────────────────────────────────────────────────────────────────────────
 
 $ErrorActionPreference = "Stop"

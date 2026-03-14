@@ -77,9 +77,14 @@ Run once after extracting the package:
 # macOS / Linux
 ./install.sh
 
-# Windows
-install.bat
+# Windows (PowerShell)
+.\install.ps1
 ```
+
+> **Windows note:** If PowerShell blocks the script due to execution policy, run this once from an elevated PowerShell window, then re-run the installer:
+> ```powershell
+> Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+> ```
 
 The installer will:
 1. Verify Python 3.10+ and ffmpeg are present
@@ -87,7 +92,7 @@ The installer will:
 3. Detect your GPU and install the appropriate PyTorch build (CUDA if an NVIDIA GPU is found, CPU-only otherwise)
 4. Install all remaining dependencies
 5. Pre-cache the transcription model so the first run is instant
-6. Download the TechBS domain classification model
+6. Download all TechBS domain classification models found in `models/`
 7. Prompt you to configure an LLM provider for the optional `--summarize` feature
 
 ---
@@ -99,9 +104,9 @@ The installer will:
 ./run.sh [options] <audio_file>
 ./run.sh --mic
 
-# Windows
-run.bat [options] <audio_file>
-run.bat --mic
+# Windows (PowerShell)
+.\run.ps1 [options] <audio_file>
+.\run.ps1 --mic
 ```
 
 In **file mode**, audio plays back through your system speakers in sync with the analysis so you can follow along in real time. Use `--no-play` to suppress playback and run faster than real time.
@@ -161,7 +166,7 @@ In **mic mode**, TechBS records continuously from your default microphone and cl
 
 Models live in the `models/` folder. Each model is custom-trained on content from a specific technical domain — giving it targeted signal on what counts as real depth versus fluff in that field. A cybersecurity model knows the difference between an actual CVE breakdown and a vendor-speak slide. A networking model knows when someone actually understands BGP versus when they're just saying "software-defined."
 
-If multiple models are present, TechBS prompts you to select one at startup. The `cyberbs` model is downloaded automatically by the installer. To add a model, place its folder inside `models/`.
+If multiple models are present, TechBS prompts you to select one at startup. The installer automatically downloads any model whose directory exists in `models/` and whose weights are available on the distribution storage. To add a new model, place its directory inside `models/` and re-run the installer.
 
 ---
 
