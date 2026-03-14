@@ -38,18 +38,6 @@ def _progress(label: str):
     return hook
 
 
-def _blob_exists(url: str) -> bool:
-    """HEAD request to check whether a blob exists without downloading it."""
-    req = urllib.request.Request(url, method="HEAD")
-    try:
-        urllib.request.urlopen(req, timeout=10)
-        return True
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return False
-        raise
-
-
 def discover_models(models_root: Path) -> list:
     """Return names of all subdirectories present in models_root."""
     if not models_root.is_dir():
@@ -68,14 +56,19 @@ def download_model(model_name: str, base: str, sas: str, models_root: Path) -> N
 
         url = f"{base}/{model_name}/{filename}{sas}"
 
-        if not _blob_exists(url):
-            print(f"  {model_name}/{filename} — not found on storage, skipping.")
-            return
-
         print(f"  {filename}")
         try:
             urllib.request.urlretrieve(url, dest, reporthook=_progress(filename))
             sys.stdout.write("\n")
+        except urllib.error.HTTPError as exc:
+            sys.stdout.write("\n")
+            if dest.exists():
+                dest.unlink()
+            if exc.code == 404:
+                print(f"  {model_name}/{filename} — not found on storage, skipping.")
+                return
+            print(f"  ERROR downloading {filename}: {exc}", file=sys.stderr)
+            raise SystemExit(1)
         except Exception as exc:
             sys.stdout.write("\n")
             if dest.exists():
