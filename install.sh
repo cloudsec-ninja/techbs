@@ -69,7 +69,6 @@ if [ "$AZURE_MODEL_URL" = "REPLACE_WITH_AZURE_URL" ]; then
 else
     echo "Downloading TechBS models from Azure..."
     python app/model_downloader.py \
-        --model cyberbs \
         --url "$AZURE_MODEL_URL" \
         --models-dir models
 fi

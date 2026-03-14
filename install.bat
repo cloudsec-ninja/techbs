@@ -80,7 +80,7 @@ if "%AZURE_MODEL_URL%"=="REPLACE_WITH_AZURE_URL" (
     echo          Models must be placed in the models\ folder manually.
 ) else (
     echo Downloading TechBS models from Azure...
-    python app\model_downloader.py --model cyberbs --url "%AZURE_MODEL_URL%" --models-dir models
+    python app\model_downloader.py --url "%AZURE_MODEL_URL%" --models-dir models
 )
 
 call deactivate
