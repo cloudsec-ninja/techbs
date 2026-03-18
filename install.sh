@@ -54,7 +54,7 @@ $PYTHON -m venv venv
 # Activate and install dependencies
 echo "Installing dependencies (this may take several minutes)..."
 source venv/bin/activate
-pip install --upgrade pip --quiet
+python -m pip install --upgrade pip --quiet
 pip install -r requirements.txt --quiet
 
 # Pre-cache the Whisper base model so first run is instant

@@ -209,4 +209,6 @@ Saved as `<filename>_<timestamp>_techbs.json` in the folder you run the command 
 - Microphone mode requires a working audio input device.
   - Linux: `sudo apt install libportaudio2`
   - macOS: `brew install portaudio`
+  - Windows ARM: `pip install sounddevice --no-binary sounddevice`
+  - Windows x64: PortAudio DLL should be included with sounddevice; if issues occur, try the ARM command above
 - Press `Ctrl+C` at any time to stop and show the final report.

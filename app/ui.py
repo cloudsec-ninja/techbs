@@ -291,7 +291,7 @@ class TechBSUI:
         if sig_of_content >= 0.5:
             return "SOLID CONTENT — Good technical material with some filler", "bold green"
         if bs_of_content >= 0.75:
-            return "TOTAL BS — Marketing and hype, self promotion, very little substance", "bold red reverse"
+            return "TOTAL BS — Marketing, hype, self promotion, and very little substance", "bold red reverse"
         if bs_of_content >= 0.5:
             return "MOSTLY BS — Heavy on buzzwords, light on technical depth", "bold red"
         return "MIXED — Some useful technical content buried in fluff", "bold yellow"

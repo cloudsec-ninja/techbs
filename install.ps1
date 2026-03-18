@@ -58,7 +58,7 @@ $pyEx = "$ScriptDir\venv\Scripts\python.exe"
 
 # ── Dependencies ──────────────────────────────────────────────────────────────
 Write-Host "Installing dependencies (this may take several minutes)..."
-& $pip install --upgrade pip --quiet
+& $pyEx -m pip install --upgrade pip --quiet
 
 # PyTorch: CUDA build if NVIDIA GPU present, otherwise CPU-only
 $nvSmi = Get-Command nvidia-smi -ErrorAction SilentlyContinue

@@ -43,9 +43,13 @@ def _check_sounddevice():
             + _portaudio_hint()
         )
     except OSError as e:
-        if "PortAudio" in str(e):
+        if "PortAudio" in str(e) or "error 0x7e" in str(e):
             raise RuntimeError(
-                "PortAudio library not found. Install it first, then retry.\n"
+                "PortAudio library not found or cannot be loaded.\n"
+                "On Windows ARM, install PortAudio separately and retry:\n"
+                "  pip install sounddevice --no-binary sounddevice\n"
+                "  OR\n"
+                "  choco install portaudio\n"
                 + _portaudio_hint()
             )
         raise RuntimeError(f"sounddevice failed to initialise: {e}")
