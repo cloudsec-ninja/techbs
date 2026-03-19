@@ -105,7 +105,7 @@ The installer will:
 3. Detect your GPU and install the appropriate PyTorch build (CUDA if an NVIDIA GPU is found, CPU-only otherwise)
 4. Install all remaining dependencies
 5. Pre-cache the transcription model so the first run is instant
-6. Download all TechBS domain classification models found in `models/`
+6. Download all TechBS domain classification models found in `models/` and verify their integrity (SHA256)
 7. Prompt you to configure an LLM provider for the optional `--debug-model` feature
 
 ---
@@ -144,6 +144,9 @@ In **mic mode** (`--mic`), TechBS records continuously from your default microph
 | `--debug-model` | Run LLM-powered model diagnostics: fact-check claims, find misclassifications, suggest training improvements |
 | `--chunk-seconds N` | Seconds per analysis sample (default: `15`) |
 | `--whisper-model SIZE` | Transcription accuracy: `tiny`, `base`, `small`, `medium`, `large` (default: `base`) |
+| `--update-models` | Check for model updates and download any that are available |
+| `--check-updates` | Show available model versions without downloading |
+| `--manifest-url URL` | Override the update manifest URL (for `--update-models` / `--check-updates`) |
 
 ### Keyboard controls (during analysis)
 
@@ -178,6 +181,12 @@ In **mic mode** (`--mic`), TechBS records continuously from your default microph
 # Save transcript and run diagnostics
 ./techbs.sh --file keynote.m4a --transcript --debug-model
 
+# Check for model updates
+./techbs.sh --check-updates
+
+# Download available model updates
+./techbs.sh --update-models
+
 # Live microphone with 10-second samples
 ./techbs.sh --mic --chunk-seconds 10
 
@@ -192,6 +201,26 @@ In **mic mode** (`--mic`), TechBS records continuously from your default microph
 Models live in the `models/` folder. Each model is custom-trained on content from a specific technical domain — giving it targeted signal on what counts as real depth versus fluff in that field. A cybersecurity model knows the difference between an actual CVE breakdown and a vendor-speak slide. A networking model knows when someone actually understands BGP versus when they're just saying "software-defined."
 
 If multiple models are present, TechBS prompts you to select one at startup. The installer automatically downloads any model whose directory exists in `models/` and whose weights are available on the distribution storage. To add a new model, place its directory inside `models/` and re-run the installer.
+
+Each model carries a version number and a SHA256 checksum in its `info.json` file. Downloaded weights are verified against this checksum — if the file doesn't match, it is deleted and the install fails loudly rather than silently loading a corrupted or tampered model.
+
+---
+
+## Model Updates
+
+TechBS can check for and apply model updates without reinstalling.
+
+```bash
+# See what versions are available
+./techbs.sh --check-updates
+
+# Download any updates (prompts for confirmation)
+./techbs.sh --update-models
+```
+
+Updates are fetched from a remote manifest JSON that lists the latest version, SHA256, and download URL for each model. Downloaded weights are verified against the manifest SHA256 before the old file is replaced. If verification fails, the download is discarded and your existing model is left untouched.
+
+The manifest URL is configured by the distribution. You can override it with `--manifest-url` or by setting the `TECHBS_MANIFEST_URL` environment variable — useful if you are hosting your own model registry.
 
 ---
 
