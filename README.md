@@ -1,6 +1,6 @@
 # TechBS — Real-Time BS Detection for Tech
 
-TechBS listens to live or recorded tech talks, conference presentations, podcasts, or interviews and classifies every segment of speech in real time using a custom-trained domain specific model. It tells you whether the speaker is delivering real technical depth or dressing up thin content in buzzwords.
+TechBS listens to live or recorded conference talks, podcasts, or tech interviews/phone screens and tells you whether the speaker is delivering real technical depth or dressing up thin content in buzzwords. Use it live for real-time BS analysis, or run it against recordings and episodes to find out what's worth the listen — without sitting through the whole thing.
 
 Models are domain-specific and interchangeable. Each model is trained exclusively on content from a single technical domain, giving it a much sharper eye for the difference between genuine expertise and performative jargon than a general-purpose model could. For example the `cyberbs` model is tuned for cybersecurity. Additional domain models will be released in time.
 
@@ -128,7 +128,7 @@ In **mic mode** (`--mic`), TechBS records continuously from your default microph
 | `--file AUDIO_FILE` | Analyse a local audio file (mp3, wav, m4a, etc.) |
 | `--url URL` | Analyse audio from a URL (YouTube, podcast, etc.) |
 | `--mic` | Analyse live microphone input |
-| `--no-play` | Skip audio playback (analysis only, runs faster than real time) |
+| `--no-play` | Skip audio playback and run analysis only. This is the key to screening recorded content quickly — the model processes the audio without playing it back, so you can vet a recording before deciding whether it's worth the listen |
 | `--transcript` | Save a full JSON transcript when done |
 | `--debug-model` | Run LLM-powered model diagnostics: fact-check claims, find misclassifications, suggest training improvements |
 | `--chunk-seconds N` | Seconds per analysis sample (default: `15`) |
