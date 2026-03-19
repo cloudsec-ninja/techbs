@@ -332,7 +332,8 @@ class TechBSUI:
         """Return (rating_text, rich_style) based on label distribution."""
         # Ignore neutral (off-topic) chunks when judging quality
         content_chunks = total - len(by_label["neutral"])
-        if content_chunks == 0:
+        neutral_pct = len(by_label["neutral"]) / total if total else 0
+        if content_chunks == 0 or neutral_pct >= 0.90:
             return "OFF-TOPIC — No domain content detected", "bold blue"
 
         sig_of_content = len(by_label["signal"]) / content_chunks
