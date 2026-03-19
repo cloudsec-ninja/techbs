@@ -1,4 +1,6 @@
 {
   "domain": "CyberSecurity",
-  "description": "Model trained on CyberSecurity subjects"
+  "description": "Model trained on CyberSecurity subjects",
+  "version": "1.0.0",
+  "sha256": "15c0295e0da9bc9ece2f8dec44fb4f1266f684eea2db975e9a5a3ab0408054a8"
 }

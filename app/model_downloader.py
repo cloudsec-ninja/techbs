@@ -10,6 +10,8 @@ Usage:
         --url "https://account.blob.core.windows.net/container?sv=...&sig=..."
 """
 import argparse
+import hashlib
+import json
 import sys
 import urllib.error
 import urllib.request
@@ -38,6 +40,26 @@ def _progress(label: str):
     return hook
 
 
+def sha256_file(path: Path) -> str:
+    """Return the hex SHA256 digest of a file."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(65536), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def load_expected_sha256(model_dir: Path) -> str | None:
+    """Return the expected SHA256 from info.json, or None if not present."""
+    info_file = model_dir / "info.json"
+    if not info_file.exists():
+        return None
+    try:
+        return json.loads(info_file.read_text(encoding="utf-8")).get("sha256")
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
 def discover_models(models_root: Path) -> list:
     """Return names of all subdirectories present in models_root."""
     if not models_root.is_dir():
@@ -47,6 +69,7 @@ def discover_models(models_root: Path) -> list:
 
 def download_model(model_name: str, base: str, sas: str, models_root: Path) -> None:
     dest_dir = models_root / model_name
+    expected_sha256 = load_expected_sha256(dest_dir)
 
     for filename in MODEL_FILES:
         dest = dest_dir / filename
@@ -75,6 +98,18 @@ def download_model(model_name: str, base: str, sas: str, models_root: Path) -> N
                 dest.unlink()
             print(f"  ERROR downloading {filename}: {exc}", file=sys.stderr)
             raise SystemExit(1)
+
+        # Integrity check
+        if expected_sha256:
+            actual = sha256_file(dest)
+            if actual != expected_sha256:
+                dest.unlink()
+                print(f"  ERROR: SHA256 mismatch for {filename} — file deleted.", file=sys.stderr)
+                print(f"  Expected: {expected_sha256}", file=sys.stderr)
+                print(f"  Got:      {actual}", file=sys.stderr)
+                print("  The download may be corrupted or tampered with.", file=sys.stderr)
+                raise SystemExit(1)
+            print(f"  ✓ Integrity verified")
 
     print(f"  Model '{model_name}' ready.")
 

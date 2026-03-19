@@ -1,4 +1,6 @@
 {
   "domain": "NetworkEngineering",
-  "description": "Model trained on Network Engineering subjects"
+  "description": "Model trained on Network Engineering subjects",
+  "version": "1.0.0",
+  "sha256": "ab9412a342cfaecc2f6d02355209083ba8b3171b60e2a8f57160b0b4cbb64fa8"
 }

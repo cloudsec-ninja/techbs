@@ -297,25 +297,24 @@ class TechBSUI:
                     self.state.status = f"Transcribing... ({start:.0f}s–{end:.0f}s)" if is_live else f"Analyzing chunk {idx + 1} ({start:.0f}s–{end:.0f}s)..."
                     live.update(make_layout(self.state))
 
-                    if text:
-                        result = analyzer.score(text)
-                        chunk = ChunkResult(
-                            index=idx,
-                            start=start,
-                            end=end,
-                            transcript=text,
-                            signal_score=result["signal_score"],
-                            neutral_score=result["neutral_score"],
-                            bs_score=result["bs_score"],
-                            label=result["label"],
-                            confidence=result["confidence"],
-                            confidence_margin=result["confidence_margin"],
-                            buzzwords=result["buzzwords"],
-                        )
-                        self.state.chunks.append(chunk)
-                        label_str = LABEL_DISPLAY.get(result["label"], result["label"].upper())
-                        self.state.status = f"Chunk {idx + 1}: {label_str}"
-                        live.update(make_layout(self.state))
+                    result = analyzer.score(text)
+                    chunk = ChunkResult(
+                        index=idx,
+                        start=start,
+                        end=end,
+                        transcript=text,
+                        signal_score=result["signal_score"],
+                        neutral_score=result["neutral_score"],
+                        bs_score=result["bs_score"],
+                        label=result["label"],
+                        confidence=result["confidence"],
+                        confidence_margin=result["confidence_margin"],
+                        buzzwords=result["buzzwords"],
+                    )
+                    self.state.chunks.append(chunk)
+                    label_str = LABEL_DISPLAY.get(result["label"], result["label"].upper())
+                    self.state.status = f"Chunk {idx + 1}: {label_str}"
+                    live.update(make_layout(self.state))
 
                 self.state.status = "Analysis complete."
                 self.state.done = True
@@ -381,9 +380,9 @@ class TechBSUI:
 
         # Score breakdown
         self.console.print(
-            f"  [green]Legit   {sig_pct*100:5.0f}%[/]  (avg confidence {avg_sig*100:.0f}%)\n"
+            f"  [green]Legit   {sig_pct*100:5.0f}%[/]  (avg score {avg_sig*100:.0f}%)\n"
             f"  [blue]Neutral {neu_pct*100:5.0f}%[/]  (off-topic / small talk)\n"
-            f"  [red]BS      {bs_pct*100:5.0f}%[/]  (avg confidence {avg_bs*100:.0f}%)\n"
+            f"  [red]BS      {bs_pct*100:5.0f}%[/]  (avg score {avg_bs*100:.0f}%)\n"
         )
 
         # Model confidence breakdown
@@ -448,7 +447,7 @@ class TechBSUI:
                     "index":            c.index,
                     "start":            round(c.start, 1),
                     "end":              round(c.end, 1),
-                    "label":            LABEL_DISPLAY.get(c.label, c.label).lower(),
+                    "label":            c.label,
                     "confidence":       c.confidence,
                     "confidence_margin": c.confidence_margin,
                     "legit_score":      round(c.signal_score,  3),

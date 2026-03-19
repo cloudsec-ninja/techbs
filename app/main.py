@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from analyzer import TechBSAnalyzer
 from version import VERSION
 from mic_transcriber import MicTranscriber
+from model_updater import ModelUpdater
 from rich.console import Console
 from rich.table import Table
 from rich import box
@@ -181,6 +182,10 @@ class AudioPlayer:
                 ["wslpath", "-w", str(audio_path.resolve())],
                 capture_output=True, text=True,
             )
+            if result.returncode != 0 or not result.stdout.strip():
+                raise RuntimeError(
+                    f"wslpath failed to convert path for Windows playback: {result.stderr.strip() or 'no output'}"
+                )
             self._win_path = result.stdout.strip()
 
     def play(self, seek_seconds: float = 0.0):
@@ -210,10 +215,12 @@ class AudioPlayer:
         if p == "wsl":
             # PowerShell MediaPlayer with seek via Position property
             seek_ms = int(seek * 1000)
+            # Escape single quotes for PowerShell single-quoted strings (' → '')
+            safe_path = self._win_path.replace("'", "''")
             ps_cmd = (
                 "Add-Type -AssemblyName presentationCore; "
                 "$m = New-Object System.Windows.Media.MediaPlayer; "
-                f"$m.Open([Uri]'{self._win_path}'); "
+                f"$m.Open([Uri]'{safe_path}'); "
                 "Start-Sleep -Milliseconds 300; "
                 f"$m.Position = [TimeSpan]::FromMilliseconds({seek_ms}); "
                 "$m.Play(); "
@@ -258,7 +265,7 @@ def realtime_sync(
         if wait > 0:
             if skipper:
                 skipped = skipper.wait_interruptible(wait)
-                if skipped:
+                if skipped and not skipper.quit_requested:
                     skipper.consume_skip()
                     # Jump both audio and transcription to the next chunk
                     if player:
@@ -324,6 +331,21 @@ def main():
         help="Save full transcript and scores to a JSON file after analysis",
     )
     parser.add_argument(
+        "--update-models",
+        action="store_true",
+        help="Check for model updates and download if available",
+    )
+    parser.add_argument(
+        "--check-updates",
+        action="store_true",
+        help="Check for model updates without downloading",
+    )
+    parser.add_argument(
+        "--manifest-url",
+        default=None,
+        help="Override the manifest URL for --update-models / --check-updates",
+    )
+    parser.add_argument(
         "--debug-model",
         action="store_true",
         help="Run LLM-powered model diagnostics: fact-check claims, find misclassifications, suggest training improvements",
@@ -342,6 +364,11 @@ def main():
     args = parser.parse_args()
 
     print(f"TechBS v{VERSION}")
+
+    if args.update_models or args.check_updates:
+        kw = {"manifest_url": args.manifest_url} if args.manifest_url else {}
+        ModelUpdater(models_dir=MODELS_DIR, **kw).run(check_only=args.check_updates)
+        return
 
     if not args.mic and not args.file and not args.url:
         parser.error("provide --file <path>, --url <url>, or --mic")
