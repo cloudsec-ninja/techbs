@@ -28,7 +28,7 @@ CONFIG_PATH = Path.home() / ".techbs" / "llm_config.json"
 def load_llm_config() -> dict:
     """Return saved LLM config dict, or {} if not configured."""
     try:
-        return json.loads(CONFIG_PATH.read_text())
+        return json.loads(CONFIG_PATH.read_text(encoding="utf-8-sig"))
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
 

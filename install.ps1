@@ -156,8 +156,8 @@ if ($llmChoice -imatch '^y') {
 
         $configDir = "$env:USERPROFILE\.techbs"
         if (-not (Test-Path $configDir)) { New-Item -ItemType Directory -Path $configDir | Out-Null }
-        [ordered]@{ provider = $llmProvider; model = $llmModel } |
-            ConvertTo-Json | Set-Content "$configDir\llm_config.json" -Encoding UTF8
+        $jsonText = [ordered]@{ provider = $llmProvider; model = $llmModel } | ConvertTo-Json
+        [System.IO.File]::WriteAllText("$configDir\llm_config.json", $jsonText)
         Write-Host "Saved: $llmProvider / $llmModel"
 
         $pkgMap = @{ claude = "anthropic"; openai = "openai"; gemini = "google-genai" }
