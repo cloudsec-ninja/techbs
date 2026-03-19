@@ -1,6 +1,17 @@
 # TechBS — Real-Time BS Detection for Tech
 
-TechBS listens to live or recorded conference talks, podcasts, or tech interviews/phone screens and tells you whether the speaker is delivering real technical depth or dressing up thin content in buzzwords. Use it live for real-time BS analysis, or run it against recorded content to determine if its worth your time.
+Is that keynote actually a groundbreaking innovation, or just a 60-minute ad for a product you don’t need? Is that tech influencer’s "Top 10 Career Tips" list actually advice, or just a way to pad their wallet?
+
+Meet **TechBS**: your personal bullshit detector for the tech industry.
+
+TechBS uses AI to separate real technical depth from buzzword-heavy marketing. Whether you're watching a keynote, listening to a podcast, or sitting through a tech interview, we help you cut through the noise.
+
+**Why use TechBS?**
+*   **Live Analysis:** Use it in real-time to see if a speaker is delivering value or just filler.
+*   **Recorded Content:** Run it against videos or audio files to decide if they are worth your time before you hit play.
+*   **Career Protection:** Don't let thin content influence your career decisions. Get the facts, skip the hype.
+
+**Stop listening to the noise and start learning what actually matters.**
 
 Models are domain-specific and interchangeable. Each model is trained exclusively on content from a single technical domain, giving it a much sharper eye for the difference between genuine expertise and performative jargon than a general-purpose model could. For example the `cyberbs` model is tuned for cybersecurity. Additional domain models will be released in time.
 
