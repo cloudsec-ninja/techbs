@@ -1,6 +1,6 @@
 # TechBS — Real-Time BS Detection for Tech
 
-TechBS listens to live or recorded conference talks, podcasts, or tech interviews/phone screens and tells you whether the speaker is delivering real technical depth or dressing up thin content in buzzwords. Use it live for real-time BS analysis, or run it against recordings and episodes to find out what's worth the listen — without sitting through the whole thing.
+TechBS listens to live or recorded conference talks, podcasts, or tech interviews/phone screens and tells you whether the speaker is delivering real technical depth or dressing up thin content in buzzwords. Use it live for real-time BS analysis, or run it against recorded content to determine if its worth your time.
 
 Models are domain-specific and interchangeable. Each model is trained exclusively on content from a single technical domain, giving it a much sharper eye for the difference between genuine expertise and performative jargon than a general-purpose model could. For example the `cyberbs` model is tuned for cybersecurity. Additional domain models will be released in time.
 
