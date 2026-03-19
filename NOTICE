@@ -1,0 +1,24 @@
+TechBS
+Copyright 2025 TechBS Contributors
+
+This product includes software developed by third parties.
+
+===============================================================================
+Whisper — OpenAI
+===============================================================================
+Copyright (c) 2022 OpenAI
+Licensed under the MIT License
+https://github.com/openai/whisper
+
+Used for local speech-to-text transcription.
+
+===============================================================================
+BERT — Google Research
+===============================================================================
+Copyright 2018 The Google AI Language Team Authors
+Licensed under the Apache License, Version 2.0
+https://github.com/google-research/bert
+
+TechBS domain classification models are fine-tuned from the
+bert-base-uncased pretrained model. The fine-tuned weights are
+derivative works distributed under the Apache License, Version 2.0.

@@ -88,9 +88,14 @@ if ($AzureModelUrl -eq "REPLACE_WITH_AZURE_URL") {
     & $pyEx "$ScriptDir\app\model_downloader.py" --url $AzureModelUrl --models-dir "$ScriptDir\models"
 }
 
-# ── LLM provider (optional) ───────────────────────────────────────────────────
+# ── LLM provider for model diagnostics (optional, developers only) ────────────
 Write-Host ""
-$llmChoice = Read-Host "Configure LLM provider for --summarize? (run installer again to change) [y/N]"
+Write-Host "-- Optional: Model Debugging --" -ForegroundColor Yellow
+Write-Host "TechBS includes a --debug-model feature that uses an LLM to audit the"
+Write-Host "classifier's decisions. This is a developer tool for improving training data"
+Write-Host "and is NOT required for normal use."
+Write-Host ""
+$llmChoice = Read-Host "Set up --debug-model support? [y/N]"
 if ($llmChoice -imatch '^y') {
     Write-Host ""
     Write-Host "Select LLM provider:"
@@ -163,13 +168,13 @@ if ($llmChoice -imatch '^y') {
 
         switch ($llmProvider) {
             "ollama" { Write-Host "Make sure Ollama is installed (https://ollama.com) and the model is pulled." }
-            "claude" { Write-Host "Set ANTHROPIC_API_KEY in your environment before using --summarize." }
-            "openai" { Write-Host "Set OPENAI_API_KEY in your environment before using --summarize." }
-            "gemini" { Write-Host "Set GOOGLE_API_KEY in your environment before using --summarize." }
+            "claude" { Write-Host "Set ANTHROPIC_API_KEY in your environment before using --debug-model." }
+            "openai" { Write-Host "Set OPENAI_API_KEY in your environment before using --debug-model." }
+            "gemini" { Write-Host "Set GOOGLE_API_KEY in your environment before using --debug-model." }
         }
     }
 }
 
 Write-Host ""
-Write-Host "Installation complete. Run the app with: .\run.ps1" -ForegroundColor Green
+Write-Host "Installation complete. Run the app with: .\techbs.ps1" -ForegroundColor Green
 Read-Host "Press Enter to exit"

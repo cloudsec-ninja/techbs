@@ -51,11 +51,11 @@ Neutral samples are excluded when calculating the final quality score so intros 
 | Verdict | Threshold |
 |---------|-----------|
 | `HIGHLY TECHNICAL` | 75%+ of content samples are Legit |
-| `SOLID CONTENT` | 50–75% Legit |
-| `MIXED` | No clear majority |
-| `MOSTLY BS` | 50–75% BS |
+| `SOLID CONTENT` | 60–75% Legit |
+| `MIXED` | Neither side above 60% |
+| `MOSTLY BS` | 60–75% BS |
 | `TOTAL BS` | 75%+ BS |
-| `OFF-TOPIC` | 70%+ Neutral overall |
+| `OFF-TOPIC` | 100% Neutral (no domain content detected) |
 
 ---
 
@@ -66,6 +66,8 @@ Neutral samples are excluded when calculating the final quality score so intros 
   - macOS: `brew install ffmpeg`
   - Linux: `sudo apt install ffmpeg`
   - Windows: download from https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip, extract, and add `ffmpeg.exe` to your system PATH
+- **yt-dlp** (required for `--url` mode — installed automatically by the installer)
+  - Or install manually: `pip install yt-dlp`
 
 ---
 
@@ -93,7 +95,7 @@ The installer will:
 4. Install all remaining dependencies
 5. Pre-cache the transcription model so the first run is instant
 6. Download all TechBS domain classification models found in `models/`
-7. Prompt you to configure an LLM provider for the optional `--summarize` feature
+7. Prompt you to configure an LLM provider for the optional `--debug-model` feature
 
 ---
 
@@ -101,17 +103,21 @@ The installer will:
 
 ```bash
 # macOS / Linux
-./run.sh [options] <audio_file>
-./run.sh --mic
+./techbs.sh --file <audio_file> [options]
+./techbs.sh --url <url> [options]
+./techbs.sh --mic [options]
 
 # Windows (PowerShell)
-.\run.ps1 [options] <audio_file>
-.\run.ps1 --mic
+.\techbs.ps1 --file <audio_file> [options]
+.\techbs.ps1 --url <url> [options]
+.\techbs.ps1 --mic [options]
 ```
 
-In **file mode**, audio plays back through your system speakers in sync with the analysis so you can follow along in real time. Use `--no-play` to suppress playback and run faster than real time.
+In **file mode** (`--file`), audio plays back through your system speakers in sync with the analysis so you can follow along in real time. Use `--no-play` to suppress playback and run faster than real time.
 
-In **mic mode**, TechBS records continuously from your default microphone and classifies each sample as it arrives. Press `Q` to stop.
+In **URL mode** (`--url`), TechBS downloads the audio from a YouTube video, podcast episode, or any other supported site using `yt-dlp`, then analyses it at full speed (playback is disabled automatically). This supports over 1,000 sites including YouTube, Spotify podcast links, Apple Podcasts, SoundCloud, and most podcast hosting platforms.
+
+In **mic mode** (`--mic`), TechBS records continuously from your default microphone and classifies each sample as it arrives. Press `Q` to stop.
 
 ---
 
@@ -119,10 +125,12 @@ In **mic mode**, TechBS records continuously from your default microphone and cl
 
 | Flag | Description |
 |------|-------------|
-| `--mic` | Analyse live microphone input instead of a file |
+| `--file AUDIO_FILE` | Analyse a local audio file (mp3, wav, m4a, etc.) |
+| `--url URL` | Analyse audio from a URL (YouTube, podcast, etc.) |
+| `--mic` | Analyse live microphone input |
 | `--no-play` | Skip audio playback (analysis only, runs faster than real time) |
 | `--transcript` | Save a full JSON transcript when done |
-| `--summarize` | Generate an LLM summary of the analysis (provider configured at install) |
+| `--debug-model` | Run LLM-powered model diagnostics: fact-check claims, find misclassifications, suggest training improvements |
 | `--chunk-seconds N` | Seconds per analysis sample (default: `15`) |
 | `--whisper-model SIZE` | Transcription accuracy: `tiny`, `base`, `small`, `medium`, `large` (default: `base`) |
 
@@ -139,25 +147,31 @@ In **mic mode**, TechBS records continuously from your default microphone and cl
 
 ```bash
 # Analyse a recorded talk
-./run.sh talk.mp3
+./techbs.sh --file talk.mp3
 
 # Analyse without playing audio (faster than real time)
-./run.sh --no-play talk.mp3
+./techbs.sh --file talk.mp3 --no-play
+
+# Analyse a YouTube video
+./techbs.sh --url "https://youtube.com/watch?v=dQw4w9WgXcQ"
+
+# Analyse a podcast episode by URL
+./techbs.sh --url "https://example.com/episodes/episode-42.mp3"
 
 # Save a full JSON transcript
-./run.sh --transcript conference_keynote.m4a
+./techbs.sh --file conference_keynote.m4a --transcript
 
-# Analyse and get an LLM summary at the end
-./run.sh --summarize keynote.m4a
+# Run model diagnostics (fact-check claims, find misclassifications)
+./techbs.sh --file keynote.m4a --debug-model
 
-# Save transcript and get LLM summary
-./run.sh --transcript --summarize keynote.m4a
+# Save transcript and run diagnostics
+./techbs.sh --file keynote.m4a --transcript --debug-model
 
 # Live microphone with 10-second samples
-./run.sh --mic --chunk-seconds 10
+./techbs.sh --mic --chunk-seconds 10
 
 # Use a more accurate transcription model for heavy accents or noisy audio
-./run.sh --whisper-model small --no-play recording.wav
+./techbs.sh --file recording.wav --whisper-model small --no-play
 ```
 
 ---
@@ -170,14 +184,16 @@ If multiple models are present, TechBS prompts you to select one at startup. The
 
 ---
 
-## LLM Summary (`--summarize`)
+## Model Diagnostics (`--debug-model`)
 
-After analysis completes, TechBS sends the full transcript — including per-sample text, timestamps, and label scores — to an LLM and asks for a detailed, evidence-based evaluation of the talk.
+This is a **developer tool** for evaluating and improving TechBS classification models. After analysis completes, TechBS sends the full transcript — including per-sample text, timestamps, and label scores — to an LLM for diagnostic review.
 
-The summary covers:
-- An opening verdict on whether the automated scores are accurate
-- 3–5 sections analysing specific patterns in the data, with sample citations and transcript quotes
-- A closing sentence on the talk's practical value to a working practitioner
+The diagnostic report covers:
+- **Claim extraction & fact-checking** — extracts specific technical claims from LEGIT-labeled samples (CVEs, tool names, protocols) and flags unverifiable or incorrect ones
+- **Misclassification candidates** — identifies samples where the model's label is likely wrong, with quoted evidence and probable failure modes
+- **Low-confidence decisions** — highlights samples where the model was uncertain and suggests what training data would help
+- **Pattern analysis** — identifies systematic biases (keyword over-triggering, missed BS patterns, transition handling)
+- **Training data recommendations** — concrete suggestions for new training examples to improve the model
 
 The LLM provider is configured once during installation. Supported providers:
 
@@ -188,7 +204,7 @@ The LLM provider is configured once during installation. Supported providers:
 | **OpenAI** | Set `OPENAI_API_KEY` environment variable |
 | **Gemini** | Set `GOOGLE_API_KEY` environment variable |
 
-The transcript JSON is generated automatically for the LLM and deleted after the summary unless you also pass `--transcript`. To change your LLM preference, re-run the installer.
+The transcript JSON is generated automatically for the LLM and deleted after diagnostics unless you also pass `--transcript`. The debug report is saved as a JSON file for later review. To change your LLM preference, re-run the installer.
 
 ---
 
@@ -212,3 +228,14 @@ Saved as `<filename>_<timestamp>_techbs.json` in the folder you run the command 
   - Windows ARM: `pip install sounddevice --no-binary sounddevice`
   - Windows x64: PortAudio DLL should be included with sounddevice; if issues occur, try the ARM command above
 - Press `Ctrl+C` at any time to stop and show the final report.
+
+---
+
+## Acknowledgments
+
+TechBS is built on the following open-source projects:
+
+- **[Whisper](https://github.com/openai/whisper)** (OpenAI) — local speech-to-text transcription. MIT License.
+- **[BERT](https://github.com/google-research/bert)** (Google Research) — base model architecture for domain classification. Apache 2.0 License. TechBS models are fine-tuned from `bert-base-uncased`.
+
+See the [NOTICE](NOTICE) file for full attribution details.

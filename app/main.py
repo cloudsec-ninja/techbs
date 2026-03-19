@@ -2,15 +2,19 @@
 """
 TechBS Analyzer
 Usage:
-    python main.py <audio_file> [--whisper-model base] [--chunk-seconds 15]
+    python main.py --file <audio_file> [--whisper-model base] [--chunk-seconds 15]
+    python main.py --url <url> [--whisper-model base] [--chunk-seconds 15]
+    python main.py --mic [--whisper-model base] [--chunk-seconds 15]
 """
 import argparse
 import itertools
 import json
 import os
 import platform
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -26,7 +30,7 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 from skip import SkipController
-from summarizer import LLMSummarizer, load_llm_config
+from model_debugger import ModelDebugger, load_llm_config
 from transcriber import AudioTranscriber
 from ui import TechBSUI
 
@@ -110,6 +114,57 @@ def _detect_platform() -> str:
             if "microsoft" in f.read().lower():
                 return "wsl"
     return "linux"
+
+
+def download_url(url: str, console: "Console | None" = None) -> Path:
+    """Download audio from a URL (YouTube, podcast, etc.) and return the local file path.
+
+    Uses yt-dlp for YouTube and other supported sites.
+    Raises SystemExit on failure after cleaning up temp files.
+    """
+    if console is None:
+        from rich.console import Console
+        console = Console()
+
+    # Check for yt-dlp
+    if not shutil.which("yt-dlp"):
+        console.print("[red]yt-dlp is required for --url support.[/]")
+        console.print("[dim]Install it:  pip install yt-dlp[/]")
+        sys.exit(1)
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="techbs_"))
+    output_template = str(tmp_dir / "audio.%(ext)s")
+
+    console.print(f"[bold cyan]Downloading audio from URL...[/]")
+    result = subprocess.run(
+        [
+            "yt-dlp",
+            "--extract-audio",
+            "--audio-format", "wav",
+            "--audio-quality", "0",
+            "--no-playlist",
+            "-o", output_template,
+            url,
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        console.print(f"[red]yt-dlp failed:[/]\n{result.stderr.strip()}")
+        sys.exit(1)
+
+    # Find the downloaded file
+    downloaded = list(tmp_dir.glob("audio.*"))
+    if not downloaded:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        console.print("[red]Download completed but no audio file was produced.[/]")
+        sys.exit(1)
+
+    audio_file = downloaded[0]
+    console.print(f"[green]Downloaded:[/] {audio_file.name} ({audio_file.stat().st_size / 1024 / 1024:.1f} MB)")
+    return audio_file
 
 
 class AudioPlayer:
@@ -217,11 +272,11 @@ def realtime_sync(
                 time.sleep(wait)
 
 
-def _run_summarizer(summarizer, transcript_path, keep: bool) -> None:
-    """Call the LLM summarizer then delete the transcript if the user didn't ask to keep it."""
-    if summarizer is None or transcript_path is None:
+def _run_debugger(debugger, transcript_path, keep: bool) -> None:
+    """Call the LLM model debugger then delete the transcript if the user didn't ask to keep it."""
+    if debugger is None or transcript_path is None:
         return
-    summarizer.summarize(transcript_path)
+    debugger.run_diagnostics(transcript_path)
     if not keep:
         transcript_path.unlink(missing_ok=True)
 
@@ -230,15 +285,21 @@ def main():
     parser = argparse.ArgumentParser(
         description="TechBS — Real-Time BS Detection for Tech"
     )
-    parser.add_argument(
-        "audio",
-        nargs="?",
-        help="Path to audio file (mp3, wav, m4a, etc.) — omit when using --mic",
+    input_group = parser.add_mutually_exclusive_group()
+    input_group.add_argument(
+        "--file",
+        metavar="AUDIO_FILE",
+        help="Path to a local audio file (mp3, wav, m4a, etc.)",
     )
-    parser.add_argument(
+    input_group.add_argument(
+        "--url",
+        metavar="URL",
+        help="URL to a YouTube video, podcast episode, or audio stream",
+    )
+    input_group.add_argument(
         "--mic",
         action="store_true",
-        help="Use live microphone input instead of an audio file",
+        help="Use live microphone input",
     )
     parser.add_argument(
         "--whisper-model",
@@ -263,15 +324,15 @@ def main():
         help="Save full transcript and scores to a JSON file after analysis",
     )
     parser.add_argument(
-        "--summarize",
+        "--debug-model",
         action="store_true",
-        help="Generate an LLM summary of the analysis after completion",
+        help="Run LLM-powered model diagnostics: fact-check claims, find misclassifications, suggest training improvements",
     )
     parser.add_argument(
         "--llm-provider",
         default=None,
         choices=["ollama", "claude", "openai", "gemini"],
-        help="LLM provider for --summarize (default: ollama)",
+        help="LLM provider for --debug-model (default: ollama)",
     )
     parser.add_argument(
         "--llm-model",
@@ -282,8 +343,8 @@ def main():
 
     print(f"TechBS v{VERSION}")
 
-    if not args.mic and not args.audio:
-        parser.error("provide an audio file or use --mic for live microphone input")
+    if not args.mic and not args.file and not args.url:
+        parser.error("provide --file <path>, --url <url>, or --mic")
 
     model_path, model_info = select_model()
     model_description = model_info.get("description", "")
@@ -292,27 +353,27 @@ def main():
     print(f"  device: {analyzer.device}")
     print(f"Loading Whisper ({args.whisper_model})...")
 
-    # ── LLM summarizer setup (before analysis so model selection doesn't interrupt results) ──
-    summarizer = None
-    if args.summarize:
+    # ── Model debugger setup (before analysis so model selection doesn't interrupt results) ──
+    debugger = None
+    if args.debug_model:
         # Resolve provider/model: CLI flags > saved config > default (ollama)
         cfg = load_llm_config()
         provider = args.llm_provider or cfg.get("provider", "ollama")
         model    = args.llm_model    or cfg.get("model")
 
-        summarizer = LLMSummarizer(provider=provider, model=model)
+        debugger = ModelDebugger(provider=provider, model=model)
 
         if provider == "ollama" and not model:
             # No saved model yet — show picker (will save after selection)
-            summarizer.model = summarizer.select_ollama_model()
+            debugger.model = debugger.select_ollama_model()
         else:
-            summarizer.console.print(
-                f"[dim]LLM: {provider} / {summarizer.model}"
+            debugger.console.print(
+                f"[dim]LLM: {provider} / {debugger.model}"
                 + (" (saved preference)" if cfg else "") + "[/]"
             )
 
-    # Transcript must be saved if we need it for the LLM summary
-    need_transcript = args.transcript or args.summarize
+    # Transcript must be saved if we need it for the model debugger
+    need_transcript = args.transcript or args.debug_model
 
     # ── microphone mode ───────────────────────────────────────────────────────
     if args.mic:
@@ -329,15 +390,23 @@ def main():
         finally:
             skipper.stop()
             mic.stop()
-        _run_summarizer(summarizer, transcript_path, keep=args.transcript)
+        _run_debugger(debugger, transcript_path, keep=args.transcript)
         return
 
-    # ── file mode ─────────────────────────────────────────────────────────────
-    audio_path = Path(args.audio)
-    if not audio_path.exists():
-        print(f"Error: audio file not found: {audio_path}", file=sys.stderr)
-        sys.exit(1)
+    # ── URL mode: download first ──────────────────────────────────────────────
+    tmp_audio_path = None
+    if args.url:
+        tmp_audio_path = download_url(args.url)
+        audio_path = tmp_audio_path
+        # URLs default to no-play (no local speaker sync needed)
+        args.no_play = True
+    else:
+        audio_path = Path(args.file)
+        if not audio_path.exists():
+            print(f"Error: audio file not found: {audio_path}", file=sys.stderr)
+            sys.exit(1)
 
+    # ── file / URL mode ───────────────────────────────────────────────────────
     transcriber = AudioTranscriber(model_size=args.whisper_model)
     ui = TechBSUI(filename=audio_path.name, model_name=model_path.name, model_description=model_description)
 
@@ -370,8 +439,10 @@ def main():
             skipper.stop()
         if player:
             player.stop()
+        if tmp_audio_path is not None:
+            shutil.rmtree(tmp_audio_path.parent, ignore_errors=True)
 
-    _run_summarizer(summarizer, transcript_path, keep=args.transcript)
+    _run_debugger(debugger, transcript_path, keep=args.transcript)
 
 
 if __name__ == "__main__":

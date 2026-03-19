@@ -75,10 +75,14 @@ fi
 
 deactivate
 
-# ── LLM summary preference ────────────────────────────────────────────────────
+# ── LLM provider for model diagnostics (optional, developers only) ────────────
 echo ""
-echo "Configure LLM provider for --summarize? (run installer again to change) [y/N]: "
-read -r LLM_CHOICE
+echo "── Optional: Model Debugging ──"
+echo "TechBS includes a --debug-model feature that uses an LLM to audit the"
+echo "classifier's decisions. This is a developer tool for improving training data"
+echo "and is NOT required for normal use."
+echo ""
+read -r -p "Set up --debug-model support? [y/N]: " LLM_CHOICE
 if [[ "$LLM_CHOICE" =~ ^[Yy]$ ]]; then
     echo ""
     echo "Select LLM provider:"
@@ -165,12 +169,12 @@ except:
 
         case "$LLM_PROVIDER" in
             ollama) echo "Make sure Ollama is installed (https://ollama.com) and the model is pulled." ;;
-            claude) echo "Set ANTHROPIC_API_KEY in your environment before using --summarize." ;;
-            openai) echo "Set OPENAI_API_KEY in your environment before using --summarize." ;;
-            gemini) echo "Set GOOGLE_API_KEY in your environment before using --summarize." ;;
+            claude) echo "Set ANTHROPIC_API_KEY in your environment before using --debug-model." ;;
+            openai) echo "Set OPENAI_API_KEY in your environment before using --debug-model." ;;
+            gemini) echo "Set GOOGLE_API_KEY in your environment before using --debug-model." ;;
         esac
     fi
 fi
 
 echo ""
-echo "Installation complete. Run the app with: ./run.sh"
+echo "Installation complete. Run the app with: ./techbs.sh"

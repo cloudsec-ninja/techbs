@@ -29,6 +29,9 @@ class ChunkResult:
     neutral_score: float
     bs_score: float
     label: str  # "signal" | "neutral" | "bs"
+    confidence: str = "HIGH"  # "HIGH" | "MEDIUM" | "LOW"
+    confidence_margin: float = 1.0
+    buzzwords: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -64,8 +67,41 @@ def _score_bar(score: float, color: str, width: int = 20) -> Text:
     return bar
 
 
+CONFIDENCE_COLOR = {"HIGH": "green", "MEDIUM": "yellow", "LOW": "red"}
+
+
+def _confidence_tag(confidence: str) -> str:
+    color = CONFIDENCE_COLOR.get(confidence, "white")
+    return f"[{color}]{confidence}[/{color}]"
+
+
 def _chunk_color(chunk: ChunkResult) -> str:
     return LABEL_COLOR.get(chunk.label, "white")
+
+
+def _buzzword_snippet(transcript: str, buzzwords: list[str], max_len: int = 120) -> Text:
+    """Build a Rich Text snippet with buzzwords highlighted in magenta bold."""
+    snippet_str = transcript[:max_len].replace("\n", " ")
+    if len(transcript) > max_len:
+        snippet_str += "..."
+    if not buzzwords:
+        return Text(snippet_str)
+
+    import re
+    # Build a single pattern matching any buzzword (case-insensitive)
+    escaped = [re.escape(bw) for bw in buzzwords]
+    pattern = re.compile("(" + "|".join(escaped) + ")", re.IGNORECASE)
+
+    result = Text()
+    last = 0
+    for m in pattern.finditer(snippet_str):
+        if m.start() > last:
+            result.append(snippet_str[last:m.start()])
+        result.append(m.group(), style="bold magenta")
+        last = m.end()
+    if last < len(snippet_str):
+        result.append(snippet_str[last:])
+    return result
 
 
 # ── verdict helpers ───────────────────────────────────────────────────────────
@@ -107,9 +143,17 @@ def _verdict_panel(state: UIState) -> Panel:
     if chunks:
         c = chunks[-1]
         color = LABEL_COLOR.get(c.label, "white")
+        conf_color = CONFIDENCE_COLOR.get(c.confidence, "white")
         content.append(f"  ", style="default")
         content.append(_label_text(c.label))
-        content.append(f"  {c.signal_score * 100:.0f}% legit · {c.neutral_score * 100:.0f}% neutral · {c.bs_score * 100:.0f}% bs\n", style=f"dim {color}")
+        content.append(f"  {c.signal_score * 100:.0f}% legit · {c.neutral_score * 100:.0f}% neutral · {c.bs_score * 100:.0f}% bs", style=f"dim {color}")
+        content.append(f"  conf: ", style="dim")
+        content.append(c.confidence, style=f"bold {conf_color}")
+        content.append("\n")
+        if c.buzzwords:
+            content.append(f"  buzzwords: ", style="dim")
+            content.append(", ".join(c.buzzwords), style="bold magenta")
+            content.append("\n")
     else:
         content.append("  —\n", style="dim")
 
@@ -148,17 +192,21 @@ def _verdict_panel(state: UIState) -> Panel:
 
 
 def _transcript_panel(state: UIState) -> Panel:
-    lines = []
-    for chunk in state.chunks[-6:]:
-        color = _chunk_color(chunk)
-        time_str = f"[{chunk.start:.0f}s–{chunk.end:.0f}s]"
-        label_str = LABEL_DISPLAY.get(chunk.label, chunk.label.upper())
-        snippet = chunk.transcript[:120].replace("\n", " ")
-        if len(chunk.transcript) > 120:
-            snippet += "..."
-        lines.append(f"[dim]{time_str}[/] [{color} bold]{label_str}[/]\n{snippet}\n")
-
-    content = "\n".join(lines) if lines else "[dim]Waiting for transcription...[/]"
+    content = Text()
+    if not state.chunks:
+        content.append("Waiting for transcription...", style="dim")
+    else:
+        for chunk in state.chunks[-6:]:
+            color = _chunk_color(chunk)
+            conf_color = CONFIDENCE_COLOR.get(chunk.confidence, "white")
+            time_str = f"[{chunk.start:.0f}s\u2013{chunk.end:.0f}s]"
+            label_str = LABEL_DISPLAY.get(chunk.label, chunk.label.upper())
+            content.append(time_str, style="dim")
+            content.append(f" {label_str}", style=f"bold {color}")
+            content.append(f" {chunk.confidence}", style=f"{conf_color}")
+            content.append("\n")
+            content.append_text(_buzzword_snippet(chunk.transcript, chunk.buzzwords))
+            content.append("\n\n")
     subtitle = f"[dim]{state.model_description}[/]" if state.model_description else None
     return Panel(
         content,
@@ -174,24 +222,32 @@ def _history_table(state: UIState) -> Panel:
     table.add_column("#", width=4, style="dim")
     table.add_column("Time", width=12)
     table.add_column("Label", width=10)
+    table.add_column("Conf", width=8)
     table.add_column("Legit", width=8)
     table.add_column("Neutral", width=8)
     table.add_column("BS", width=8)
+    table.add_column("Buzzwords", width=20)
     table.add_column("Transcript snippet")
 
     for chunk in state.chunks[-8:]:
         color = _chunk_color(chunk)
+        conf_color = CONFIDENCE_COLOR.get(chunk.confidence, "white")
         label_str = LABEL_DISPLAY.get(chunk.label, chunk.label.upper())
-        snippet = chunk.transcript[:55].replace("\n", " ")
-        if len(chunk.transcript) > 55:
+        snippet = chunk.transcript[:45].replace("\n", " ")
+        if len(chunk.transcript) > 45:
             snippet += "..."
+        bw_str = ", ".join(chunk.buzzwords[:3])
+        if len(chunk.buzzwords) > 3:
+            bw_str += f" +{len(chunk.buzzwords) - 3}"
         table.add_row(
             str(chunk.index + 1),
-            f"{chunk.start:.0f}s–{chunk.end:.0f}s",
+            f"{chunk.start:.0f}s\u2013{chunk.end:.0f}s",
             f"[{color} bold]{label_str}[/]",
+            f"[{conf_color}]{chunk.confidence}[/{conf_color}]",
             f"[green]{chunk.signal_score * 100:.0f}%[/]",
             f"[blue]{chunk.neutral_score * 100:.0f}%[/]",
             f"[red]{chunk.bs_score * 100:.0f}%[/]",
+            f"[magenta]{bw_str}[/]" if bw_str else "[dim]—[/]",
             snippet,
         )
 
@@ -252,6 +308,9 @@ class TechBSUI:
                             neutral_score=result["neutral_score"],
                             bs_score=result["bs_score"],
                             label=result["label"],
+                            confidence=result["confidence"],
+                            confidence_margin=result["confidence_margin"],
+                            buzzwords=result["buzzwords"],
                         )
                         self.state.chunks.append(chunk)
                         label_str = LABEL_DISPLAY.get(result["label"], result["label"].upper())
@@ -272,27 +331,23 @@ class TechBSUI:
 
     def _overall_rating(self, by_label: dict, total: int) -> tuple[str, str]:
         """Return (rating_text, rich_style) based on label distribution."""
-        sig_pct  = len(by_label["signal"])  / total
-        bs_pct   = len(by_label["bs"])      / total
-        neu_pct  = len(by_label["neutral"]) / total
-
         # Ignore neutral (off-topic) chunks when judging quality
         content_chunks = total - len(by_label["neutral"])
         if content_chunks == 0:
-            return "NO TECHNICAL CONTENT", "bold blue"
+            return "OFF-TOPIC — No domain content detected", "bold blue"
 
         sig_of_content = len(by_label["signal"]) / content_chunks
         bs_of_content  = len(by_label["bs"])      / content_chunks
 
-        if neu_pct > 0.7:
-            return "OFF-TOPIC — Mostly greetings and small talk, nothing technical", "bold blue"
+        # Judge based on the ratio of legit-to-BS among actual content chunks.
+        # High neutral % doesn't get a free pass — if what little content exists is BS, say so.
         if sig_of_content >= 0.75:
             return "HIGHLY TECHNICAL — Excellent technical depth throughout", "bold green"
-        if sig_of_content >= 0.5:
-            return "SOLID CONTENT — Good technical material with some filler", "bold green"
         if bs_of_content >= 0.75:
             return "TOTAL BS — Marketing, hype, self promotion, and very little substance", "bold red reverse"
-        if bs_of_content >= 0.5:
+        if sig_of_content > 0.6:
+            return "SOLID CONTENT — Good technical material with some filler", "bold green"
+        if bs_of_content > 0.6:
             return "MOSTLY BS — Heavy on buzzwords, light on technical depth", "bold red"
         return "MIXED — Some useful technical content buried in fluff", "bold yellow"
 
@@ -331,6 +386,28 @@ class TechBSUI:
             f"  [red]BS      {bs_pct*100:5.0f}%[/]  (avg confidence {avg_bs*100:.0f}%)\n"
         )
 
+        # Model confidence breakdown
+        high   = sum(1 for c in chunks if c.confidence == "HIGH")
+        medium = sum(1 for c in chunks if c.confidence == "MEDIUM")
+        low    = sum(1 for c in chunks if c.confidence == "LOW")
+        self.console.print(
+            f"  Model confidence:  "
+            f"[green]{high} HIGH[/] · [yellow]{medium} MEDIUM[/] · [red]{low} LOW[/]"
+        )
+        if low > 0:
+            self.console.print(f"  [dim]({low} chunk{'s' if low != 1 else ''} where the model was uncertain — review these for accuracy)[/]")
+
+        # Buzzword summary
+        all_bw = [bw for c in chunks for bw in c.buzzwords]
+        if all_bw:
+            from collections import Counter
+            bw_counts = Counter(bw.lower() for bw in all_bw).most_common(10)
+            bw_display = ", ".join(f"{w} ({n})" for w, n in bw_counts)
+            self.console.print(f"\n  [bold magenta]Buzzwords detected:[/] {len(all_bw)} total across {sum(1 for c in chunks if c.buzzwords)} chunks")
+            self.console.print(f"  [magenta]{bw_display}[/]")
+
+        self.console.print()
+
         if self._save_transcript:
             self._transcript_path = self._save_analysis(chunks, rating_text)
             self.console.print(f"[dim]Transcript saved → {self._transcript_path}[/]\n")
@@ -342,6 +419,10 @@ class TechBSUI:
         out_path = Path(f"{stem}_{ts}_techbs.json")
 
         total = len(chunks)
+        if total == 0:
+            out_path.write_text(json.dumps({"file": self.state.filename, "error": "no chunks analyzed"}, indent=2))
+            return out_path
+
         by_label: dict[str, list] = {"signal": [], "neutral": [], "bs": []}
         for c in chunks:
             by_label[c.label].append(c)
@@ -364,14 +445,17 @@ class TechBSUI:
             },
             "chunks": [
                 {
-                    "index":         c.index,
-                    "start":         round(c.start, 1),
-                    "end":           round(c.end, 1),
-                    "label":         c.label,
-                    "legit_score":   round(c.signal_score,  3),
-                    "neutral_score": round(c.neutral_score, 3),
-                    "bs_score":      round(c.bs_score,      3),
-                    "transcript":    c.transcript,
+                    "index":            c.index,
+                    "start":            round(c.start, 1),
+                    "end":              round(c.end, 1),
+                    "label":            LABEL_DISPLAY.get(c.label, c.label).lower(),
+                    "confidence":       c.confidence,
+                    "confidence_margin": c.confidence_margin,
+                    "legit_score":      round(c.signal_score,  3),
+                    "neutral_score":    round(c.neutral_score, 3),
+                    "bs_score":         round(c.bs_score,      3),
+                    "buzzwords":        c.buzzwords,
+                    "transcript":       c.transcript,
                 }
                 for c in chunks
             ],
