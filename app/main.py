@@ -425,8 +425,6 @@ def main():
     if args.url:
         tmp_audio_path = download_url(args.url)
         audio_path = tmp_audio_path
-        # URLs default to no-play (no local speaker sync needed)
-        args.no_play = True
     else:
         audio_path = Path(args.file)
         if not audio_path.exists():

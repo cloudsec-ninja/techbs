@@ -126,7 +126,7 @@ The installer will:
 
 In **file mode** (`--file`), audio plays back through your system speakers in sync with the analysis so you can follow along in real time. Use `--no-play` to suppress playback and run faster than real time.
 
-In **URL mode** (`--url`), TechBS downloads the audio from a YouTube video, podcast episode, or any other supported site using `yt-dlp`, then analyses it at full speed (playback is disabled automatically). This supports over 1,000 sites including YouTube, Spotify podcast links, Apple Podcasts, SoundCloud, and most podcast hosting platforms.
+In **URL mode** (`--url`), TechBS downloads the audio from a YouTube video, podcast episode, or any other supported site using `yt-dlp`, then analyses it with real-time playback just like file mode. Add `--no-play` to skip playback and run at full speed. This works with YouTube, SoundCloud, and [many other sites supported by yt-dlp](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md). Note: services that require authentication or use DRM (e.g. Spotify, Apple Podcasts) are not supported.
 
 In **mic mode** (`--mic`), TechBS records continuously from your default microphone and classifies each sample as it arrives. Press `Q` to stop.
 
