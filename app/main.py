@@ -388,7 +388,7 @@ def main():
         provider = args.llm_provider or cfg.get("provider", "ollama")
         model    = args.llm_model    or cfg.get("model")
 
-        debugger = ModelDebugger(provider=provider, model=model)
+        debugger = ModelDebugger(provider=provider, model=model, domain_info=model_info)
 
         if provider == "ollama" and not model:
             # No saved model yet — show picker (will save after selection)

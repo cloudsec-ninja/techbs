@@ -334,7 +334,7 @@ class TechBSUI:
         content_chunks = total - len(by_label["neutral"])
         neutral_pct = len(by_label["neutral"]) / total if total else 0
         if content_chunks == 0 or neutral_pct >= 0.90:
-            return "OFF-TOPIC — No domain content detected", "bold blue"
+            return "OFF-TOPIC — Little to no domain content detected", "bold blue"
 
         sig_of_content = len(by_label["signal"]) / content_chunks
         bs_of_content  = len(by_label["bs"])      / content_chunks

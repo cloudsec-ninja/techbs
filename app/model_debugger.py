@@ -39,10 +39,12 @@ def save_llm_config(provider: str, model: str) -> None:
 
 
 class ModelDebugger:
-    def __init__(self, provider: str, model: str | None = None):
+    def __init__(self, provider: str, model: str | None = None, domain_info: dict | None = None):
         self.provider = provider
         self.model = model or DEFAULT_MODELS.get(provider)
         self.console = Console()
+        self.domain = (domain_info or {}).get("domain", "general technology")
+        self.domain_description = (domain_info or {}).get("description", "")
 
     # ── Ollama model selection ─────────────────────────────────────────────────
 
@@ -101,14 +103,20 @@ class ModelDebugger:
 
     def _build_prompt(self, data: dict) -> str:
         s = data["summary"]
+        domain = self.domain
+        domain_desc = f" ({self.domain_description})" if self.domain_description else ""
+
         lines = [
             "You are a model diagnostics engineer reviewing output from TechBS, a BERT-based",
-            "classifier that scores cybersecurity talk transcripts. Your job is NOT to summarize",
-            "the talk — it is to audit the model's decisions so we can improve training data.\n",
+            f"classifier that scores {domain} talk transcripts{domain_desc}.",
+            "Your job is NOT to summarize the talk — it is to audit the model's decisions so we",
+            "can improve training data.\n",
+            f"The domain focus is **{domain}**. Content that is not related to {domain} should",
+            "generally be labeled NEUTRAL (off-topic), even if it is technical in another field.\n",
             "The model assigns one of three labels to each chunk of transcript:",
-            "  LEGIT:   Real technical depth — specific CVEs, protocols, tool configs, code, attack chains",
-            "  NEUTRAL: Off-topic — greetings, logistics, introductions, small talk",
-            "  BS:      Domain-adjacent but shallow — marketing hype, buzzwords, vague claims, name-dropping without depth\n",
+            f"  LEGIT:   Real {domain} technical depth — domain-specific details, tools, techniques, protocols",
+            "  NEUTRAL: Off-topic — greetings, logistics, introductions, small talk, or content outside the domain",
+            f"  BS:      {domain}-adjacent but shallow — marketing hype, buzzwords, vague claims, name-dropping without depth\n",
             "═══ ANALYSIS RESULTS ═══",
             f"File: {data['file']}",
             f"Duration: {s['duration_seconds']:.0f}s  |  Chunks: {s['total_chunks']}",
