@@ -106,7 +106,7 @@ The installer will:
 4. Install all remaining dependencies
 5. Pre-cache the transcription model so the first run is instant
 6. Download all TechBS domain classification models found in `models/` and verify their integrity (SHA256)
-7. Prompt you to configure an LLM provider for the optional `--debug-model` feature
+7. Verify model integrity (SHA256 checksums)
 
 ---
 
@@ -141,7 +141,6 @@ In **mic mode** (`--mic`), TechBS records continuously from your default microph
 | `--mic` | Analyse live microphone input |
 | `--no-play` | Skip audio playback and run analysis only. This is the key to screening recorded content quickly — the model processes the audio without playing it back, so you can vet a recording before deciding whether it's worth the listen |
 | `--transcript` | Save a full JSON transcript when done |
-| `--debug-model` | Run LLM-powered model diagnostics: fact-check claims, find misclassifications, suggest training improvements |
 | `--chunk-seconds N` | Seconds per analysis sample (default: `15`) |
 | `--whisper-model SIZE` | Transcription accuracy: `tiny`, `base`, `small`, `medium`, `large` (default: `base`) |
 | `--update-models` | Check for model updates and download any that are available |
@@ -174,12 +173,6 @@ In **mic mode** (`--mic`), TechBS records continuously from your default microph
 
 # Save a full JSON transcript
 ./techbs.sh --file conference_keynote.m4a --transcript
-
-# Run model diagnostics (fact-check claims, find misclassifications)
-./techbs.sh --file keynote.m4a --debug-model
-
-# Save transcript and run diagnostics
-./techbs.sh --file keynote.m4a --transcript --debug-model
 
 # Check for model updates
 ./techbs.sh --check-updates
@@ -221,30 +214,6 @@ TechBS can check for and apply model updates without reinstalling.
 Updates are fetched from a remote manifest JSON that lists the latest version, SHA256, and download URL for each model. Downloaded weights are verified against the manifest SHA256 before the old file is replaced. If verification fails, the download is discarded and your existing model is left untouched.
 
 The manifest URL is configured by the distribution. You can override it with `--manifest-url` or by setting the `TECHBS_MANIFEST_URL` environment variable — useful if you are hosting your own model registry.
-
----
-
-## Model Diagnostics (`--debug-model`)
-
-This is a **developer tool** for evaluating and improving TechBS classification models. After analysis completes, TechBS sends the full transcript — including per-sample text, timestamps, and label scores — to an LLM for diagnostic review.
-
-The diagnostic report covers:
-- **Claim extraction & fact-checking** — extracts specific technical claims from LEGIT-labeled samples (CVEs, tool names, protocols) and flags unverifiable or incorrect ones
-- **Misclassification candidates** — identifies samples where the model's label is likely wrong, with quoted evidence and probable failure modes
-- **Low-confidence decisions** — highlights samples where the model was uncertain and suggests what training data would help
-- **Pattern analysis** — identifies systematic biases (keyword over-triggering, missed BS patterns, transition handling)
-- **Training data recommendations** — concrete suggestions for new training examples to improve the model
-
-The LLM provider is configured once during installation. Supported providers:
-
-| Provider | Requirement |
-|----------|-------------|
-| **Ollama** (local, default) | Install from https://ollama.com and pull a model: `ollama pull llama3.2` |
-| **Claude** | Set `ANTHROPIC_API_KEY` environment variable |
-| **OpenAI** | Set `OPENAI_API_KEY` environment variable |
-| **Gemini** | Set `GOOGLE_API_KEY` environment variable |
-
-The transcript JSON is generated automatically for the LLM and deleted after diagnostics unless you also pass `--transcript`. The debug report is saved as a JSON file for later review. To change your LLM preference, re-run the installer.
 
 ---
 

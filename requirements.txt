@@ -7,11 +7,7 @@ torch
 torchvision
 openai-whisper
 rich
-requests     # --debug-model with Ollama (HTTP API)
+requests     # model downloads and updates
 sounddevice  # --mic mode; also needs system lib: Linux: sudo apt install libportaudio2 | macOS: brew install portaudio
 yt-dlp       # --url mode; downloads audio from YouTube, podcasts, etc.
 # Windows ARM: use pip install sounddevice --no-binary sounddevice
-# optional LLM summary providers (install whichever you use):
-# pip install anthropic        (--llm-provider claude)
-# pip install openai           (--llm-provider openai)
-# pip install google-genai     (--llm-provider gemini)

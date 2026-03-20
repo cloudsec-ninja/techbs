@@ -31,8 +31,14 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 from skip import SkipController
-from model_debugger import ModelDebugger, load_llm_config
 from transcriber import AudioTranscriber
+
+# model_debugger is a dev-only module, not shipped in the distribution package
+try:
+    from model_debugger import ModelDebugger, load_llm_config
+    _HAS_DEBUGGER = True
+except ImportError:
+    _HAS_DEBUGGER = False
 from ui import TechBSUI
 
 MODELS_DIR = Path(__file__).parent.parent / "models"
@@ -345,22 +351,23 @@ def main():
         default=None,
         help="Override the manifest URL for --update-models / --check-updates",
     )
-    parser.add_argument(
-        "--debug-model",
-        action="store_true",
-        help="Run LLM-powered model diagnostics: fact-check claims, find misclassifications, suggest training improvements",
-    )
-    parser.add_argument(
-        "--llm-provider",
-        default=None,
-        choices=["ollama", "claude", "openai", "gemini"],
-        help="LLM provider for --debug-model (default: ollama)",
-    )
-    parser.add_argument(
-        "--llm-model",
-        default=None,
-        help="Model name override for the selected LLM provider",
-    )
+    if _HAS_DEBUGGER:
+        parser.add_argument(
+            "--debug-model",
+            action="store_true",
+            help="Run LLM-powered model diagnostics: fact-check claims, find misclassifications, suggest training improvements",
+        )
+        parser.add_argument(
+            "--llm-provider",
+            default=None,
+            choices=["ollama", "claude", "openai", "gemini"],
+            help="LLM provider for --debug-model (default: ollama)",
+        )
+        parser.add_argument(
+            "--llm-model",
+            default=None,
+            help="Model name override for the selected LLM provider",
+        )
     args = parser.parse_args()
 
     print(f"TechBS v{VERSION}")
@@ -382,7 +389,7 @@ def main():
 
     # ── Model debugger setup (before analysis so model selection doesn't interrupt results) ──
     debugger = None
-    if args.debug_model:
+    if _HAS_DEBUGGER and getattr(args, "debug_model", False):
         # Resolve provider/model: CLI flags > saved config > default (ollama)
         cfg = load_llm_config()
         provider = args.llm_provider or cfg.get("provider", "ollama")
@@ -400,7 +407,7 @@ def main():
             )
 
     # Transcript must be saved if we need it for the model debugger
-    need_transcript = args.transcript or args.debug_model
+    need_transcript = args.transcript or getattr(args, "debug_model", False)
 
     # ── microphone mode ───────────────────────────────────────────────────────
     if args.mic:

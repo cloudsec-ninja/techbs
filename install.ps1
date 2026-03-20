@@ -4,7 +4,7 @@
     TechBS installer for Windows.
 .DESCRIPTION
     Sets up the Python virtual environment, installs dependencies, downloads
-    model weights from Azure, and optionally configures an LLM provider.
+    model weights and verifies their integrity.
 .NOTES
     If execution policy blocks this script, run once from an admin PowerShell:
         Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
@@ -86,93 +86,6 @@ if ($AzureModelUrl -eq "REPLACE_WITH_AZURE_URL") {
 } else {
     Write-Host "Downloading TechBS models from Azure..."
     & $pyEx "$ScriptDir\app\model_downloader.py" --url $AzureModelUrl --models-dir "$ScriptDir\models"
-}
-
-# ── LLM provider for model diagnostics (optional, developers only) ────────────
-Write-Host ""
-Write-Host "-- Optional: Model Debugging --" -ForegroundColor Yellow
-Write-Host "TechBS includes a --debug-model feature that uses an LLM to audit the"
-Write-Host "classifier's decisions. This is a developer tool for improving training data"
-Write-Host "and is NOT required for normal use."
-Write-Host ""
-$llmChoice = Read-Host "Set up --debug-model support? [y/N]"
-if ($llmChoice -imatch '^y') {
-    Write-Host ""
-    Write-Host "Select LLM provider:"
-    Write-Host "  1) Ollama  (local, free -- requires Ollama installed separately)"
-    Write-Host "  2) Claude  (cloud  -- requires ANTHROPIC_API_KEY env var)"
-    Write-Host "  3) OpenAI  (cloud  -- requires OPENAI_API_KEY env var)"
-    Write-Host "  4) Gemini  (cloud  -- requires GOOGLE_API_KEY env var)"
-    Write-Host ""
-    $providerChoice = Read-Host "Choice [1-4]"
-
-    $llmProvider = switch ($providerChoice) {
-        "1" { "ollama" }
-        "2" { "claude" }
-        "3" { "openai" }
-        "4" { "gemini" }
-        default { $null }
-    }
-
-    if ($llmProvider) {
-        $llmModel = switch ($llmProvider) {
-            "ollama" {
-                try {
-                    $tags   = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 2
-                    $models = $tags.models
-                    if ($models.Count -gt 0) {
-                        Write-Host "Available Ollama models:"
-                        for ($i = 0; $i -lt $models.Count; $i++) {
-                            Write-Host "  $($i + 1)) $($models[$i].name)"
-                        }
-                        Write-Host ""
-                        $raw = Read-Host "Model [number or name]"
-                        $n   = 0
-                        if ([int]::TryParse($raw, [ref]$n) -and $n -ge 1 -and $n -le $models.Count) {
-                            $models[$n - 1].name
-                        } else { $raw }
-                    } else {
-                        Write-Host "No models found. Pull one first: ollama pull llama3.2"
-                        Read-Host "Model name"
-                    }
-                } catch {
-                    Write-Host "Ollama not running. Examples: llama3.2  mistral  qwen3:mcp  phi4"
-                    Read-Host "Model name"
-                }
-            }
-            "claude" {
-                $m = Read-Host "Claude model [claude-sonnet-4-6]"
-                if ($m) { $m } else { "claude-sonnet-4-6" }
-            }
-            "openai" {
-                $m = Read-Host "OpenAI model [gpt-4o]"
-                if ($m) { $m } else { "gpt-4o" }
-            }
-            "gemini" {
-                $m = Read-Host "Gemini model [gemini-2.0-flash]"
-                if ($m) { $m } else { "gemini-2.0-flash" }
-            }
-        }
-
-        $configDir = "$env:USERPROFILE\.techbs"
-        if (-not (Test-Path $configDir)) { New-Item -ItemType Directory -Path $configDir | Out-Null }
-        $jsonText = [ordered]@{ provider = $llmProvider; model = $llmModel } | ConvertTo-Json
-        [System.IO.File]::WriteAllText("$configDir\llm_config.json", $jsonText)
-        Write-Host "Saved: $llmProvider / $llmModel"
-
-        $pkgMap = @{ claude = "anthropic"; openai = "openai"; gemini = "google-genai" }
-        if ($pkgMap.ContainsKey($llmProvider)) {
-            Write-Host "Installing $($pkgMap[$llmProvider]) package..."
-            & $pip install $pkgMap[$llmProvider] --quiet
-        }
-
-        switch ($llmProvider) {
-            "ollama" { Write-Host "Make sure Ollama is installed (https://ollama.com) and the model is pulled." }
-            "claude" { Write-Host "Set ANTHROPIC_API_KEY in your environment before using --debug-model." }
-            "openai" { Write-Host "Set OPENAI_API_KEY in your environment before using --debug-model." }
-            "gemini" { Write-Host "Set GOOGLE_API_KEY in your environment before using --debug-model." }
-        }
-    }
 }
 
 Write-Host ""
