@@ -3,5 +3,5 @@
   "description": "Model trained on CyberSecurity subjects",
   "version": "1.0.0",
   "weights_file": "model.safetensors",
-  "weights_sha256": "e1b1fcb66d9e033318d59d6f48d4350b368df578aef8dd92e43ee0dc19054ed0"
+  "weights_sha256": "1b6dedde044824bc337b86c665a67ceb0019797a2ac74114fe19e1e454180d7f"
 }

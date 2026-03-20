@@ -379,6 +379,8 @@ def main():
 
     if not args.mic and not args.file and not args.url:
         parser.error("provide --file <path>, --url <url>, or --mic")
+    if args.mic and args.no_play:
+        args.no_play = False  # mic mode has no playback; ignore silently
 
     model_path, model_info = select_model()
     model_description = model_info.get("description", "")
