@@ -75,8 +75,6 @@ Neutral samples are excluded when calculating the final quality score so intros 
   - macOS: `brew install ffmpeg`
   - Linux: `sudo apt install ffmpeg`
   - Windows: download from https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip, extract, and add `ffmpeg.exe` to your system PATH
-- **yt-dlp** (required for `--url` mode — installed automatically)
-  - Or install manually: `pip install yt-dlp`
 
 ---
 
@@ -120,7 +118,7 @@ techbs --mic [options]
 
 In **file mode** (`--file`), audio plays back through your system speakers in sync with the analysis so you can follow along in real time. Use `--no-play` to suppress playback and run faster than real time.
 
-In **URL mode** (`--url`), TechBS downloads the audio from a podcast episode or any other supported site using `yt-dlp`, then analyses it with real-time playback just like file mode. Add `--no-play` to skip playback and run at full speed.
+In **URL mode** (`--url`), TechBS downloads the audio from a podcast episode or any other supported site, then analyses it with real-time playback just like file mode. Add `--no-play` to skip playback and run at full speed.
 
 In **mic mode** (`--mic`), TechBS records continuously from your default microphone and classifies each sample as it arrives. Press `Q` to stop.
 
