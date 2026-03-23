@@ -337,6 +337,17 @@ def main():
         help="Save full transcript and scores to a JSON file after analysis",
     )
     parser.add_argument(
+        "--model-list",
+        action="store_true",
+        help="List all available models and their install status",
+    )
+    parser.add_argument(
+        "--model-pull",
+        nargs="+",
+        metavar="NAME",
+        help="Download one or more models by name (e.g. --model-pull cyberbs3)",
+    )
+    parser.add_argument(
         "--update-models",
         action="store_true",
         help="Check for model updates and download if available",
@@ -346,11 +357,7 @@ def main():
         action="store_true",
         help="Check for model updates without downloading",
     )
-    parser.add_argument(
-        "--manifest-url",
-        default=None,
-        help="Override the manifest URL for --update-models / --check-updates",
-    )
+
     if _HAS_DEBUGGER:
         parser.add_argument(
             "--debug-model",
@@ -372,9 +379,16 @@ def main():
 
     print(f"TechBS v{VERSION}")
 
+    if args.model_list:
+        ModelUpdater(models_dir=MODELS_DIR).list_models()
+        return
+
+    if args.model_pull:
+        ModelUpdater(models_dir=MODELS_DIR).pull_models(args.model_pull)
+        return
+
     if args.update_models or args.check_updates:
-        kw = {"manifest_url": args.manifest_url} if args.manifest_url else {}
-        ModelUpdater(models_dir=MODELS_DIR, **kw).run(check_only=args.check_updates)
+        ModelUpdater(models_dir=MODELS_DIR).run(check_only=args.check_updates)
         return
 
     if not args.mic and not args.file and not args.url:

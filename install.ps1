@@ -1,27 +1,31 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    TechBS installer for Windows.
+    TechBS web installer for Windows.
 .DESCRIPTION
-    Sets up the Python virtual environment, installs dependencies, downloads
-    model weights and verifies their integrity.
+    Downloads the latest TechBS release, extracts it, creates a Python virtual
+    environment, and installs all dependencies.
 .NOTES
+    Usage:  irm https://techbs.ai/install.ps1 | iex
+
     If execution policy blocks this script, run once from an admin PowerShell:
         Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 #>
 
-# ── Azure model storage ───────────────────────────────────────────────────────
-# Replace the value below with your full Azure Blob container URL including
-# the embedded SAS token before distributing.
-$AzureModelUrl = "https://ddffrrrsseee.blob.core.windows.net/models?sp=r&st=2026-03-14T18:13:10Z&se=2026-04-01T02:28:10Z&spr=https&sv=2024-11-04&sr=c&sig=E0TDvGmNUYCNW9MeW8KgAsI6JMk9BmI66EkisaIQIFQ%3D"
-# ─────────────────────────────────────────────────────────────────────────────
-
 $ErrorActionPreference = "Stop"
-$ScriptDir = $PSScriptRoot
 
-Write-Host "=== TechBS Installer ===" -ForegroundColor Cyan
+$GitHubRepo     = "cloudsec-ninja/techbs"
+$GitHubApi      = "https://api.github.com/repos/$GitHubRepo/releases/latest"
+$DefaultInstall = Join-Path $env:USERPROFILE "techbs"
 
-# ── Python 3.10+ ─────────────────────────────────────────────────────────────
+Write-Host ""
+Write-Host "+==========================================+" -ForegroundColor Cyan
+Write-Host "|        TechBS Installer                  |" -ForegroundColor Cyan
+Write-Host "|        Cut through the BS.               |" -ForegroundColor Cyan
+Write-Host "+==========================================+" -ForegroundColor Cyan
+Write-Host ""
+
+# -- Python 3.10+ -------------------------------------------------------------
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     Write-Error "Python not found. Install Python 3.10+ from https://www.python.org/downloads/"
     exit 1
@@ -35,7 +39,7 @@ if ([int]$pyParts[0] -lt 3 -or ([int]$pyParts[0] -eq 3 -and [int]$pyParts[1] -lt
 }
 Write-Host "Python $pyVersion found."
 
-# ── ffmpeg ───────────────────────────────────────────────────────────────────
+# -- ffmpeg --------------------------------------------------------------------
 if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
     Write-Host ""
     Write-Host "ERROR: ffmpeg not found. TechBS requires ffmpeg to decode audio." -ForegroundColor Red
@@ -46,17 +50,83 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
     Read-Host "Press Enter to exit"
     exit 1
 }
+Write-Host "ffmpeg found."
 
-# ── Virtual environment ───────────────────────────────────────────────────────
-Write-Host "Creating virtual environment..."
-if (-not (Test-Path "$ScriptDir\venv")) {
-    & python -m venv "$ScriptDir\venv"
+# -- Choose install directory --------------------------------------------------
+Write-Host ""
+$InstallDir = Read-Host "Install directory [$DefaultInstall]"
+if ([string]::IsNullOrWhiteSpace($InstallDir)) {
+    $InstallDir = $DefaultInstall
 }
 
-$pip  = "$ScriptDir\venv\Scripts\pip.exe"
-$pyEx = "$ScriptDir\venv\Scripts\python.exe"
+if ((Test-Path $InstallDir) -and (Get-ChildItem $InstallDir -Force | Measure-Object).Count -gt 0) {
+    $overwrite = Read-Host "Directory $InstallDir already exists and is not empty. Overwrite? [y/N]"
+    if ($overwrite -notin @("y", "Y")) {
+        Write-Host "Installation cancelled."
+        exit 0
+    }
+}
 
-# ── Dependencies ──────────────────────────────────────────────────────────────
+New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+
+# -- Fetch latest release URL from GitHub --------------------------------------
+Write-Host ""
+Write-Host "Fetching latest release from GitHub..."
+
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $Release    = Invoke-RestMethod -Uri $GitHubApi -UseBasicParsing
+    $ReleaseUrl = $Release.zipball_url
+} catch {
+    Write-Error "Could not fetch release info from GitHub: $_"
+    exit 1
+}
+
+if (-not $ReleaseUrl) {
+    Write-Error "Could not determine download URL from GitHub. Check your internet connection."
+    exit 1
+}
+
+# -- Download and extract ------------------------------------------------------
+Write-Host "Downloading TechBS..."
+
+$ZipPath = Join-Path $env:TEMP "techbs-download.zip"
+try {
+    (New-Object System.Net.WebClient).DownloadFile($ReleaseUrl, $ZipPath)
+} catch {
+    Write-Error "Download failed: $_"
+    exit 1
+}
+
+Write-Host "Extracting to $InstallDir..."
+
+# Extract to a temp dir first so we can strip the top-level folder
+$ExtractTemp = Join-Path $env:TEMP "techbs-extract"
+if (Test-Path $ExtractTemp) { Remove-Item $ExtractTemp -Recurse -Force }
+Expand-Archive -Path $ZipPath -DestinationPath $ExtractTemp -Force
+
+# Find the inner folder (the archive wraps files in a single top-level dir)
+$inner = Get-ChildItem $ExtractTemp -Directory | Select-Object -First 1
+if ($inner) {
+    Get-ChildItem $inner.FullName -Force | Move-Item -Destination $InstallDir -Force
+} else {
+    Get-ChildItem $ExtractTemp -Force | Move-Item -Destination $InstallDir -Force
+}
+
+Remove-Item $ExtractTemp -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item $ZipPath -Force -ErrorAction SilentlyContinue
+
+# -- Virtual environment -------------------------------------------------------
+Write-Host ""
+Write-Host "Creating virtual environment..."
+if (-not (Test-Path "$InstallDir\venv")) {
+    & python -m venv "$InstallDir\venv"
+}
+
+$pip  = "$InstallDir\venv\Scripts\pip.exe"
+$pyEx = "$InstallDir\venv\Scripts\python.exe"
+
+# -- Dependencies --------------------------------------------------------------
 Write-Host "Installing dependencies (this may take several minutes)..."
 & $pyEx -m pip install --upgrade pip --quiet
 
@@ -73,21 +143,39 @@ if ($nvSmi) {
     & $pip install torch torchvision --quiet
 }
 
-& $pip install -r "$ScriptDir\requirements.txt" --quiet
+& $pip install -r "$InstallDir\requirements.txt" --quiet
 
-# ── Whisper base model ────────────────────────────────────────────────────────
+# -- Whisper base model --------------------------------------------------------
 Write-Host "Downloading Whisper base model..."
 & $pyEx -c "import whisper; whisper.load_model('base'); print('Whisper model cached.')"
 
-# ── TechBS model weights ──────────────────────────────────────────────────────
-if ($AzureModelUrl -eq "REPLACE_WITH_AZURE_URL") {
+# -- Done ----------------------------------------------------------------------
+Write-Host ""
+Write-Host "============================================" -ForegroundColor Green
+Write-Host "  TechBS installed successfully!" -ForegroundColor Green
+Write-Host "============================================" -ForegroundColor Green
+Write-Host ""
+Write-Host "  Location:  $InstallDir"
+Write-Host ""
+Write-Host "  Next steps:" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "    1. Pull a model:"
+Write-Host "       cd $InstallDir"
+Write-Host "       .\techbs.ps1 --model-list          # see available models"
+Write-Host "       .\techbs.ps1 --model-pull cyberbs3  # download a model"
+Write-Host ""
+Write-Host "    2. Run TechBS:"
+Write-Host "       .\techbs.ps1 --file keynote.mp3"
+Write-Host "       .\techbs.ps1 --mic"
+Write-Host ""
+
+# PATH hint
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($userPath -notlike "*$InstallDir*") {
+    Write-Host "  Tip: Add TechBS to your PATH for easy access:" -ForegroundColor Yellow
+    Write-Host "    `$env:Path += `";$InstallDir`""
+    Write-Host "    [Environment]::SetEnvironmentVariable('Path', `$env:Path + ';$InstallDir', 'User')"
     Write-Host ""
-    Write-Warning "Azure model URL not configured. Place model weights in models\ manually."
-} else {
-    Write-Host "Downloading TechBS models from Azure..."
-    & $pyEx "$ScriptDir\app\model_downloader.py" --url $AzureModelUrl --models-dir "$ScriptDir\models"
 }
 
-Write-Host ""
-Write-Host "Installation complete. Run the app with: .\techbs.ps1" -ForegroundColor Green
 Read-Host "Press Enter to exit"

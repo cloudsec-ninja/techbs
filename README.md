@@ -1,6 +1,6 @@
 # TechBS — Real-Time BS Detection for Tech
 
-Is that keynote actually a groundbreaking innovation, or just a 60-minute ad for a product you don’t need? Is that tech influencer’s "Top 10 Career Tips" list actually advice, or just a way to pad their wallet?
+Is that keynote actually a groundbreaking innovation, or just a 60-minute ad for a product you don’t need? Is that tech influencer’s "Top 10 Career Tips" list actually advice, or just trying to sell you a course?
 
 Meet **TechBS**: your personal bullshit detector for the tech industry.
 

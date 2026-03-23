@@ -1,13 +1,14 @@
 """
-Downloads TechBS model weights from Azure Blob Storage.
-Called by install.sh / install.bat during setup.
+Downloads TechBS model files from HuggingFace.
+Called by install.sh / install.ps1 during setup, or run directly.
 
-Auto-discovers model directories under models/ and downloads any missing
-model.safetensors files. Only downloads a model if it exists on storage.
+Queries the HuggingFace API to discover all models published under the
+TechBS organization, then downloads any missing files.
 
 Usage:
-    python model_downloader.py \
-        --url "https://account.blob.core.windows.net/container?sv=...&sig=..."
+    python model_downloader.py                        # download all models
+    python model_downloader.py --model cyberbs        # download one model
+    python model_downloader.py --models-dir /path/to/models
 """
 import argparse
 import hashlib
@@ -16,16 +17,23 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
 
-# Files required to run inference
+HF_ORG  = "techbsai"
+HF_API  = "https://huggingface.co/api"
+HF_BASE = "https://huggingface.co"
+
+# Files required for inference (weights last — they're the largest)
 MODEL_FILES = [
+    "config.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "buzzwords.json",
+    "info.json",
     "model.safetensors",
 ]
 
 
 def _progress(label: str):
-    """Return a urlretrieve reporthook that prints a progress line."""
     def hook(count, block_size, total_size):
         if total_size <= 0:
             mb = count * block_size / 1_048_576
@@ -41,7 +49,6 @@ def _progress(label: str):
 
 
 def sha256_file(path: Path) -> str:
-    """Return the hex SHA256 digest of a file."""
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for block in iter(lambda: f.read(65536), b""):
@@ -49,27 +56,22 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def load_expected_sha256(model_dir: Path) -> str | None:
-    """Return the expected SHA256 from info.json, or None if not present."""
-    info_file = model_dir / "info.json"
-    if not info_file.exists():
-        return None
+def list_hf_models(org: str = HF_ORG) -> list[str]:
+    """Return model repo names published under the given HuggingFace org."""
+    url = f"{HF_API}/models?author={org}"
     try:
-        return json.loads(info_file.read_text(encoding="utf-8")).get("sha256")
-    except (json.JSONDecodeError, OSError):
-        return None
+        with urllib.request.urlopen(url, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return [m["id"].split("/")[-1] for m in data]
+    except Exception as exc:
+        print(f"ERROR: Could not query HuggingFace API: {exc}", file=sys.stderr)
+        raise SystemExit(1)
 
 
-def discover_models(models_root: Path) -> list:
-    """Return names of all subdirectories present in models_root."""
-    if not models_root.is_dir():
-        return []
-    return sorted(p.name for p in models_root.iterdir() if p.is_dir())
-
-
-def download_model(model_name: str, base: str, sas: str, models_root: Path) -> None:
+def download_model(model_name: str, models_root: Path, org: str = HF_ORG) -> None:
+    repo_id  = f"{org}/{model_name}"
     dest_dir = models_root / model_name
-    expected_sha256 = load_expected_sha256(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
 
     for filename in MODEL_FILES:
         dest = dest_dir / filename
@@ -77,64 +79,79 @@ def download_model(model_name: str, base: str, sas: str, models_root: Path) -> N
             print(f"  {filename} — already present, skipping.")
             continue
 
-        url = f"{base}/{model_name}/{filename}{sas}"
-
-        print(f"  {filename}")
+        url  = f"{HF_BASE}/{repo_id}/resolve/main/{filename}"
+        hook = _progress(filename) if filename == "model.safetensors" else None
+        print(f"  Downloading {filename}...")
         try:
-            urllib.request.urlretrieve(url, dest, reporthook=_progress(filename))
-            sys.stdout.write("\n")
+            urllib.request.urlretrieve(url, dest, reporthook=hook)
+            if hook:
+                sys.stdout.write("\n")
         except urllib.error.HTTPError as exc:
-            sys.stdout.write("\n")
+            if hook:
+                sys.stdout.write("\n")
             if dest.exists():
                 dest.unlink()
             if exc.code == 404:
-                print(f"  {model_name}/{filename} — not found on storage, skipping.")
-                return
+                print(f"  {filename} — not found in repo, skipping.")
+                continue
             print(f"  ERROR downloading {filename}: {exc}", file=sys.stderr)
             raise SystemExit(1)
         except Exception as exc:
-            sys.stdout.write("\n")
+            if hook:
+                sys.stdout.write("\n")
             if dest.exists():
                 dest.unlink()
             print(f"  ERROR downloading {filename}: {exc}", file=sys.stderr)
             raise SystemExit(1)
 
-        # Integrity check
-        if expected_sha256:
-            actual = sha256_file(dest)
-            if actual != expected_sha256:
-                dest.unlink()
-                print(f"  ERROR: SHA256 mismatch for {filename} — file deleted.", file=sys.stderr)
-                print(f"  Expected: {expected_sha256}", file=sys.stderr)
-                print(f"  Got:      {actual}", file=sys.stderr)
-                print("  The download may be corrupted or tampered with.", file=sys.stderr)
-                raise SystemExit(1)
-            print(f"  ✓ Integrity verified")
+    # SHA256 integrity check on weights
+    weights   = dest_dir / "model.safetensors"
+    info_file = dest_dir / "info.json"
+    expected  = None
+
+    if info_file.exists():
+        try:
+            info     = json.loads(info_file.read_text(encoding="utf-8"))
+            expected = info.get("weights_sha256") or info.get("sha256")
+        except Exception:
+            pass
+
+    if expected and weights.exists():
+        actual = sha256_file(weights)
+        if actual != expected:
+            weights.unlink()
+            print(f"  ERROR: SHA256 mismatch for model.safetensors — file deleted.", file=sys.stderr)
+            print(f"  Expected: {expected}", file=sys.stderr)
+            print(f"  Got:      {actual}", file=sys.stderr)
+            raise SystemExit(1)
+        print(f"  Integrity verified.")
 
     print(f"  Model '{model_name}' ready.")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Download TechBS model weights from Azure Blob Storage")
-    parser.add_argument("--url",        required=True, help="Full Azure container URL with embedded SAS token")
-    parser.add_argument("--models-dir", default=None,  help="Path to models directory (default: ../models relative to this script)")
+    parser = argparse.ArgumentParser(description="Download TechBS models from HuggingFace")
+    parser.add_argument("--model",      default=None,   help="Model name to download (default: all available)")
+    parser.add_argument("--org",        default=HF_ORG, help=f"HuggingFace organization (default: {HF_ORG})")
+    parser.add_argument("--models-dir", default=None,   help="Path to models directory")
     args = parser.parse_args()
 
     models_root = Path(args.models_dir) if args.models_dir else Path(__file__).parent.parent / "models"
 
-    models = discover_models(models_root)
+    if args.model:
+        models = [args.model]
+    else:
+        print(f"Querying HuggingFace for models under '{args.org}'...")
+        models = list_hf_models(args.org)
+
     if not models:
-        print("No model directories found — nothing to download.")
+        print("No models found.")
         return
 
-    parts = urlsplit(args.url)
-    base = urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
-    sas  = ("?" + parts.query) if parts.query else ""
-
-    print(f"Checking {len(models)} model(s): {', '.join(models)}")
+    print(f"Found {len(models)} model(s): {', '.join(models)}")
     for model_name in models:
         print(f"\nModel: {model_name}")
-        download_model(model_name, base, sas, models_root)
+        download_model(model_name, models_root, org=args.org)
 
 
 if __name__ == "__main__":

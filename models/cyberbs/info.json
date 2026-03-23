@@ -1,7 +1,0 @@
-{
-  "domain": "CyberSecurity",
-  "description": "Model trained on CyberSecurity subjects",
-  "version": "1.0.0",
-  "weights_file": "model.safetensors",
-  "weights_sha256": "1b6dedde044824bc337b86c665a67ceb0019797a2ac74114fe19e1e454180d7f"
-}
