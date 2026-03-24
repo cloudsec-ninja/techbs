@@ -2,8 +2,8 @@
 set -e
 
 # ── TechBS Web Installer (macOS / Linux) ─────────────────────────────────────
-# Downloads the latest TechBS release from GitHub, extracts it, creates a
-# virtual environment, and installs all Python dependencies.
+# Downloads the latest TechBS release from GitHub, installs to the standard
+# user-local location, and registers the `techbs` command in your PATH.
 #
 # Usage:
 #   curl -fsSL https://techbs.ai/install.sh | bash
@@ -11,7 +11,9 @@ set -e
 
 GITHUB_REPO="cloudsec-ninja/techbs"
 GITHUB_API="https://api.github.com/repos/$GITHUB_REPO/releases/latest"
-DEFAULT_INSTALL_DIR="$HOME/techbs"
+INSTALL_DIR="$HOME/.local/share/techbs"
+BIN_DIR="$HOME/.local/bin"
+BIN_LINK="$BIN_DIR/techbs"
 
 echo ""
 echo "╔══════════════════════════════════════════╗"
@@ -19,6 +21,30 @@ echo "║        TechBS Installer                  ║"
 echo "║        Cut through the BS.               ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
+
+# ── Uninstall ─────────────────────────────────────────────────────────────────
+if [[ "${1:-}" == "--uninstall" ]]; then
+    echo "Uninstalling TechBS..."
+
+    if [ -L "$BIN_LINK" ]; then
+        rm "$BIN_LINK"
+        echo "✓ Removed $BIN_LINK"
+    fi
+
+    if [ -d "$INSTALL_DIR" ]; then
+        rm -rf "$INSTALL_DIR"
+        echo "✓ Removed $INSTALL_DIR"
+    fi
+
+    if [ ! -L "$BIN_LINK" ] && [ ! -d "$INSTALL_DIR" ]; then
+        echo ""
+        echo "TechBS has been uninstalled."
+        echo "You may also remove the PATH line added to your shell rc file:"
+        echo "  # Added by TechBS installer"
+        echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+    fi
+    exit 0
+fi
 
 # ── Check Python 3.10+ ───────────────────────────────────────────────────────
 PYTHON=$(command -v python3 || command -v python || true)
@@ -35,7 +61,7 @@ if [ "$MAJOR" -lt 3 ] || { [ "$MAJOR" -eq 3 ] && [ "$MINOR" -lt 10 ]; }; then
     echo "ERROR: Python 3.10+ required. Found $VERSION."
     exit 1
 fi
-echo "Python $VERSION found."
+echo "✓ Python $VERSION"
 
 # ── Check ffmpeg ─────────────────────────────────────────────────────────────
 if ! command -v ffmpeg &> /dev/null; then
@@ -47,9 +73,9 @@ if ! command -v ffmpeg &> /dev/null; then
     echo ""
     exit 1
 fi
-echo "ffmpeg found."
+echo "✓ ffmpeg"
 
-# ── Install PortAudio on Linux if needed ─────────────────────────────────────
+# ── Install PortAudio on Linux if needed (required for --mic) ─────────────────
 if [[ "$(uname)" == "Linux" ]]; then
     if ! ldconfig -p 2>/dev/null | grep -q libportaudio; then
         echo "Installing libportaudio2 (required for --mic)..."
@@ -58,40 +84,26 @@ if [[ "$(uname)" == "Linux" ]]; then
     fi
 fi
 
-# ── Choose install directory ─────────────────────────────────────────────────
-echo ""
-echo "Where would you like to install TechBS?"
-printf "Install directory [%s]: " "$DEFAULT_INSTALL_DIR"
-
-# When piped from curl, stdin is the script itself — reattach the terminal
-if [ -t 0 ]; then
-    read -r INSTALL_DIR
-else
-    read -r INSTALL_DIR < /dev/tty || true
-fi
-
-INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
-
-# Expand ~ if the user typed it
-INSTALL_DIR="${INSTALL_DIR/#\~/$HOME}"
-
+# ── Handle existing install ───────────────────────────────────────────────────
 if [ -d "$INSTALL_DIR" ] && [ "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
     echo ""
-    printf "Directory %s already exists and is not empty. Overwrite? [y/N]: " "$INSTALL_DIR"
+    echo "TechBS is already installed at $INSTALL_DIR."
+    printf "Reinstall / update? [y/N]: "
     if [ -t 0 ]; then
-        read -r OVERWRITE
+        read -r CONFIRM
     else
-        read -r OVERWRITE < /dev/tty || true
+        read -r CONFIRM < /dev/tty || true
     fi
-    if [[ ! "$OVERWRITE" =~ ^[Yy]$ ]]; then
+    if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
         echo "Installation cancelled."
         exit 0
     fi
+    rm -rf "$INSTALL_DIR"
 fi
 
 mkdir -p "$INSTALL_DIR"
 
-# ── Fetch latest release URL from GitHub ─────────────────────────────────────
+# ── Fetch latest release from GitHub ─────────────────────────────────────────
 echo ""
 echo "Fetching latest release from GitHub..."
 
@@ -100,7 +112,7 @@ if command -v curl &> /dev/null; then
 elif command -v wget &> /dev/null; then
     RELEASE_URL=$(wget -qO- "$GITHUB_API" | grep '"tarball_url"' | cut -d'"' -f4)
 else
-    echo "ERROR: curl or wget is required to download TechBS."
+    echo "ERROR: curl or wget is required."
     exit 1
 fi
 
@@ -109,7 +121,7 @@ if [ -z "$RELEASE_URL" ]; then
     exit 1
 fi
 
-# ── Download and extract ─────────────────────────────────────────────────────
+# ── Download and extract ──────────────────────────────────────────────────────
 echo "Downloading TechBS..."
 
 TMPFILE=$(mktemp /tmp/techbs-XXXXXX.tar.gz)
@@ -121,47 +133,42 @@ else
     wget -q --show-progress -O "$TMPFILE" "$RELEASE_URL"
 fi
 
-echo "Extracting to $INSTALL_DIR..."
+echo "Extracting..."
 tar -xzf "$TMPFILE" -C "$INSTALL_DIR" --strip-components=1
 
-# ── Create virtual environment ───────────────────────────────────────────────
+# ── Create virtual environment ────────────────────────────────────────────────
 echo ""
 echo "Creating virtual environment..."
 $PYTHON -m venv "$INSTALL_DIR/venv"
 
-# ── Install dependencies ─────────────────────────────────────────────────────
-echo "Installing dependencies (this may take several minutes)..."
+# ── Install dependencies ──────────────────────────────────────────────────────
+echo "Installing dependencies (this may take a few minutes)..."
 source "$INSTALL_DIR/venv/bin/activate"
 python -m pip install --upgrade pip --quiet
+
+# Install PyTorch — CUDA build if NVIDIA GPU detected, CPU-only otherwise
+if command -v nvidia-smi &> /dev/null; then
+    echo "NVIDIA GPU detected — installing CUDA-enabled PyTorch..."
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128 --quiet
+else
+    echo "No NVIDIA GPU detected — installing CPU-only PyTorch..."
+    pip install torch torchvision --quiet
+fi
+
 pip install -r "$INSTALL_DIR/requirements.txt" --quiet
 
-# ── Pre-cache Whisper base model ─────────────────────────────────────────────
+# ── Pre-cache Whisper base model ──────────────────────────────────────────────
 echo "Downloading Whisper base model..."
-python -c "import whisper; whisper.load_model('base'); print('Whisper model cached.')"
+python -c "import whisper; whisper.load_model('base'); print('✓ Whisper model cached.')"
 
 deactivate
 
-# ── Done ─────────────────────────────────────────────────────────────────────
-echo ""
-echo "════════════════════════════════════════════"
-echo "  TechBS installed successfully!"
-echo "════════════════════════════════════════════"
-echo ""
-echo "  Location:  $INSTALL_DIR"
-echo ""
-echo "  Next steps:"
-echo ""
-echo "    1. Pull a model:"
-echo "       cd $INSTALL_DIR"
-echo "       ./techbs.sh --model-list          # see available models"
-echo "       ./techbs.sh --model-pull cyberbs3  # download a model"
-echo ""
-echo "    2. Run TechBS:"
-echo "       ./techbs.sh --file keynote.mp3"
-echo "       ./techbs.sh --mic"
-echo ""
+# ── Register the techbs command ───────────────────────────────────────────────
+mkdir -p "$BIN_DIR"
+ln -sf "$INSTALL_DIR/techbs.sh" "$BIN_LINK"
+chmod +x "$INSTALL_DIR/techbs.sh"
 
-# Add to PATH hint
+# ── Ensure ~/.local/bin is in PATH ────────────────────────────────────────────
 SHELL_NAME=$(basename "$SHELL" 2>/dev/null || echo "bash")
 case "$SHELL_NAME" in
     zsh)  RC_FILE="$HOME/.zshrc" ;;
@@ -169,8 +176,30 @@ case "$SHELL_NAME" in
     *)    RC_FILE="$HOME/.profile" ;;
 esac
 
-if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-    echo "  Tip: Add TechBS to your PATH for easy access:"
-    echo "    echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> $RC_FILE"
-    echo ""
+PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
+if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
+    echo "" >> "$RC_FILE"
+    echo "# Added by TechBS installer" >> "$RC_FILE"
+    echo "$PATH_LINE" >> "$RC_FILE"
+    export PATH="$BIN_DIR:$PATH"
+    echo "✓ Added ~/.local/bin to PATH in $RC_FILE"
 fi
+
+# ── Done ──────────────────────────────────────────────────────────────────────
+echo ""
+echo "════════════════════════════════════════════"
+echo "  TechBS installed successfully!"
+echo "════════════════════════════════════════════"
+echo ""
+echo "  Installed to:  $INSTALL_DIR"
+echo "  Command:       techbs"
+echo ""
+echo "  Next steps:"
+echo ""
+echo "    techbs --model-list           # see available models"
+echo "    techbs --model-pull cyberbs   # download a model"
+echo "    techbs --file keynote.mp3     # analyze a file"
+echo "    techbs --mic                  # analyze live audio"
+echo ""
+echo "  Restart your terminal (or run: source $RC_FILE) to use the techbs command."
+echo ""

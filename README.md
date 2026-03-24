@@ -106,6 +106,20 @@ The installer will:
 6. Pre-cache the Whisper transcription model so the first run is instant
 7. Register the `techbs` command
 
+## Uninstall
+
+**macOS / Linux:**
+```bash
+curl -fsSL https://techbs.ai/install.sh | bash -s -- --uninstall
+```
+
+**Windows (PowerShell — run as Administrator):**
+```powershell
+irm https://techbs.ai/install.ps1 | iex -Uninstall
+```
+
+Removes the install directory and the `techbs` command. On Linux/macOS you may also remove the PATH line added to your shell rc file.
+
 ---
 
 ## Usage

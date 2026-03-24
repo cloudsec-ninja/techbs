@@ -14,6 +14,9 @@
 
 $ErrorActionPreference = "Stop"
 
+# Detect uninstall: set $env:TECHBS_UNINSTALL=1 before piping, or pass -Uninstall as arg
+$Uninstall = ($args -contains "-Uninstall") -or ($env:TECHBS_UNINSTALL -eq "1")
+
 $GitHubRepo     = "cloudsec-ninja/techbs"
 $GitHubApi      = "https://api.github.com/repos/$GitHubRepo/releases/latest"
 $DefaultInstall = Join-Path $env:USERPROFILE "techbs"
@@ -25,17 +28,47 @@ Write-Host "|        Cut through the BS.               |" -ForegroundColor Cyan
 Write-Host "+==========================================+" -ForegroundColor Cyan
 Write-Host ""
 
+# -- Uninstall ----------------------------------------------------------------
+if ($Uninstall) {
+    Write-Host "Uninstalling TechBS..." -ForegroundColor Cyan
+
+    $techbsCmd = Get-Command techbs -ErrorAction SilentlyContinue
+    if ($techbsCmd) {
+        $cmdPath = $techbsCmd.Source
+        Remove-Item $cmdPath -Force -ErrorAction SilentlyContinue
+        Write-Host "Removed $cmdPath" -ForegroundColor Green
+    }
+
+    if (Test-Path $DefaultInstall) {
+        Remove-Item $DefaultInstall -Recurse -Force
+        Write-Host "Removed $DefaultInstall" -ForegroundColor Green
+    }
+
+    # Remove from user PATH
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if ($userPath -like "*$DefaultInstall*") {
+        $newPath = ($userPath -split ";" | Where-Object { $_ -ne $DefaultInstall }) -join ";"
+        [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+        Write-Host "Removed from PATH" -ForegroundColor Green
+    }
+
+    Write-Host ""
+    Write-Host "TechBS has been uninstalled." -ForegroundColor Green
+    $env:TECHBS_UNINSTALL = $null
+    return
+}
+
 # -- Python 3.10+ -------------------------------------------------------------
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     Write-Error "Python not found. Install Python 3.10+ from https://www.python.org/downloads/"
-    exit 1
+    return
 }
 
 $pyVersion = & python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
 $pyParts   = $pyVersion -split '\.'
 if ([int]$pyParts[0] -lt 3 -or ([int]$pyParts[0] -eq 3 -and [int]$pyParts[1] -lt 10)) {
     Write-Error "Python 3.10+ required. Found $pyVersion."
-    exit 1
+    return
 }
 Write-Host "Python $pyVersion found."
 
@@ -48,9 +81,43 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
     Write-Host "  3. Add that folder to your system PATH"
     Write-Host "  4. Re-run this installer."
     Read-Host "Press Enter to exit"
-    exit 1
+    return
 }
 Write-Host "ffmpeg found."
+
+# -- Visual C++ Redistributable ------------------------------------------------
+$vcDll = Join-Path $env:SystemRoot "System32\vcruntime140.dll"
+if (-not (Test-Path $vcDll)) {
+    Write-Host ""
+    Write-Host "ERROR: Microsoft Visual C++ Redistributable not found." -ForegroundColor Red
+    Write-Host "  PyTorch requires vcruntime140.dll to run on Windows."
+    Write-Host ""
+    Write-Host "  Download and install from:" -ForegroundColor Cyan
+    Write-Host "  https://aka.ms/vs/17/release/vc_redist.x64.exe"
+    Write-Host ""
+    Write-Host "  Install the redistributable, then re-run this installer."
+    return
+}
+
+# -- Microsoft Visual C++ Redistributable (required by PyTorch) ----------------
+$vcInstalled = Test-Path "HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64"
+if (-not $vcInstalled) {
+    $vcInstalled = (Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" -ErrorAction SilentlyContinue |
+        Get-ItemProperty | Where-Object { $_.DisplayName -like "*Visual C++*Redistributable*x64*" }) -ne $null
+}
+if (-not $vcInstalled) {
+    Write-Host ""
+    Write-Host "WARNING: Microsoft Visual C++ Redistributable (x64) not detected." -ForegroundColor Yellow
+    Write-Host "PyTorch requires this to run. Install it from:" -ForegroundColor Yellow
+    Write-Host "  https://aka.ms/vs/17/release/vc_redist.x64.exe" -ForegroundColor Cyan
+    Write-Host ""
+    $vcContinue = Read-Host "Continue anyway? [y/N]"
+    if ($vcContinue -notin @("y", "Y")) {
+        Write-Host "Install the Visual C++ Redistributable and re-run this installer."
+        Read-Host "Press Enter to exit"
+        return
+    }
+}
 
 # -- Choose install directory --------------------------------------------------
 Write-Host ""
@@ -63,7 +130,7 @@ if ((Test-Path $InstallDir) -and (Get-ChildItem $InstallDir -Force | Measure-Obj
     $overwrite = Read-Host "Directory $InstallDir already exists and is not empty. Overwrite? [y/N]"
     if ($overwrite -notin @("y", "Y")) {
         Write-Host "Installation cancelled."
-        exit 0
+        return
     }
 }
 
@@ -75,16 +142,20 @@ Write-Host "Fetching latest release from GitHub..."
 
 try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $Release    = Invoke-RestMethod -Uri $GitHubApi -UseBasicParsing
-    $ReleaseUrl = $Release.zipball_url
+    $Release    = Invoke-RestMethod -Uri $GitHubApi -Headers @{ "User-Agent" = "TechBS-Installer" }
+    $ReleaseUrl = ($Release.assets | Where-Object { $_.name -like "*.zip" } | Select-Object -First 1).browser_download_url
+    if (-not $ReleaseUrl) {
+        # Fallback to source zipball if no .zip asset uploaded
+        $ReleaseUrl = $Release.zipball_url
+    }
 } catch {
     Write-Error "Could not fetch release info from GitHub: $_"
-    exit 1
+    return
 }
 
 if (-not $ReleaseUrl) {
     Write-Error "Could not determine download URL from GitHub. Check your internet connection."
-    exit 1
+    return
 }
 
 # -- Download and extract ------------------------------------------------------
@@ -92,10 +163,10 @@ Write-Host "Downloading TechBS..."
 
 $ZipPath = Join-Path $env:TEMP "techbs-download.zip"
 try {
-    (New-Object System.Net.WebClient).DownloadFile($ReleaseUrl, $ZipPath)
+    Invoke-WebRequest -Uri $ReleaseUrl -OutFile $ZipPath -UseBasicParsing
 } catch {
     Write-Error "Download failed: $_"
-    exit 1
+    return
 }
 
 Write-Host "Extracting to $InstallDir..."
@@ -147,7 +218,11 @@ if ($nvSmi) {
 
 # -- Whisper base model --------------------------------------------------------
 Write-Host "Downloading Whisper base model..."
-& $pyEx -c "import whisper; whisper.load_model('base'); print('Whisper model cached.')"
+try {
+    & $pyEx -c "import whisper; whisper.load_model('base'); print('Whisper model cached.')"
+} catch {
+    Write-Host "WARNING: Could not pre-cache Whisper model. It will download on first run." -ForegroundColor Yellow
+}
 
 # -- Done ----------------------------------------------------------------------
 Write-Host ""
@@ -162,7 +237,7 @@ Write-Host ""
 Write-Host "    1. Pull a model:"
 Write-Host "       cd $InstallDir"
 Write-Host "       .\techbs.ps1 --model-list          # see available models"
-Write-Host "       .\techbs.ps1 --model-pull cyberbs3  # download a model"
+Write-Host "       .\techbs.ps1 --model-pull cyberbs  # download a model"
 Write-Host ""
 Write-Host "    2. Run TechBS:"
 Write-Host "       .\techbs.ps1 --file keynote.mp3"
@@ -177,5 +252,3 @@ if ($userPath -notlike "*$InstallDir*") {
     Write-Host "    [Environment]::SetEnvironmentVariable('Path', `$env:Path + ';$InstallDir', 'User')"
     Write-Host ""
 }
-
-Read-Host "Press Enter to exit"

@@ -12,6 +12,9 @@ CHUNK_SECONDS = 15  # process this many seconds at a time
 _USE_GPU = torch.cuda.is_available()
 _USE_MPS = (not _USE_GPU) and torch.backends.mps.is_available()
 
+# FP16 requires compute capability >= 7.0 (Volta+). Older GPUs produce NaN.
+_USE_FP16 = _USE_GPU and torch.cuda.get_device_capability()[0] >= 7
+
 
 class AudioTranscriber:
     def __init__(self, model_size: str = "base"):
@@ -64,7 +67,7 @@ class AudioTranscriber:
             if len(chunk) < chunk_samples:
                 chunk = np.pad(chunk, (0, chunk_samples - len(chunk)))
 
-            result = self.model.transcribe(chunk, fp16=_USE_GPU)
+            result = self.model.transcribe(chunk, fp16=_USE_FP16)
             text = result["text"].strip()
             yield (i, start / SAMPLE_RATE, end / SAMPLE_RATE, text)
             i += 1

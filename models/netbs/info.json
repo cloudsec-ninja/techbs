@@ -1,0 +1,7 @@
+{
+  "domain": "NetworkEngineering",
+  "description": "Model trained on Network Engineering subjects",
+  "version": "0.90.0",
+  "weights_file": "model.safetensors",
+  "weights_sha256": "cfbc45724b27c38069e6ae182a0c86376961aaed1e45713c935a4ec1bcddf06b"
+}
