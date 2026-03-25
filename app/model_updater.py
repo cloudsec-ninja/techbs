@@ -93,12 +93,19 @@ class ModelUpdater:
 
             # Fetch info.json from the repo for version, sha256, and metadata
             info = {}
+            info_fetched = False
             try:
                 info_url = f"{HF_BASE}/{repo_id}/resolve/main/info.json"
                 with urllib.request.urlopen(info_url, timeout=10) as r:
                     info = json.loads(r.read().decode("utf-8"))
+                    info_fetched = True
             except Exception:
                 pass
+
+            # Skip models whose info.json couldn't be fetched — without version
+            # metadata we can't reliably compare local vs remote versions.
+            if not info_fetched:
+                continue
 
             models[name] = {
                 "display_name": info.get("domain", name),
@@ -242,13 +249,18 @@ class ModelUpdater:
                 if filename == "model.safetensors":
                     continue  # weights downloaded separately below with progress
                 dest = model_dir / filename
-                if dest.exists():
+                # Re-download if missing or suspiciously small (likely a partial download)
+                if dest.exists() and dest.stat().st_size > 0:
                     continue
                 file_url = f"{HF_BASE}/{repo_id}/resolve/main/{filename}"
                 self.console.print(f"  [dim]{filename}[/]")
                 try:
-                    urllib.request.urlretrieve(file_url, dest)
+                    tmp = dest.with_suffix(dest.suffix + ".tmp")
+                    urllib.request.urlretrieve(file_url, tmp)
+                    tmp.replace(dest)
                 except Exception as e:
+                    if tmp.exists():
+                        tmp.unlink()
                     self.console.print(f"  [yellow]Warning: could not download {filename}: {e}[/]")
 
             # Download model weights

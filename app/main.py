@@ -107,8 +107,11 @@ def select_model() -> tuple[Path, dict]:
             idx = int(choice) - 1
             if 0 <= idx < len(models):
                 return models[idx], infos[idx]
-        except (ValueError, EOFError):
+        except ValueError:
             pass
+        except EOFError:
+            console.print(f"[red]No interactive input available. Use --model to specify a model.[/]")
+            sys.exit(1)
         console.print(f"[red]Enter a number between 1 and {len(models)}[/]")
 
 
@@ -223,6 +226,9 @@ class AudioPlayer:
             seek_ms = int(seek * 1000)
             # Escape single quotes for PowerShell single-quoted strings (' → '')
             safe_path = self._win_path.replace("'", "''")
+            # Wait for media to open, then sleep until playback finishes.
+            # Uses NaturalDuration instead of a fixed 7200s sleep so the
+            # process exits shortly after the audio ends.
             ps_cmd = (
                 "Add-Type -AssemblyName presentationCore; "
                 "$m = New-Object System.Windows.Media.MediaPlayer; "
@@ -230,7 +236,9 @@ class AudioPlayer:
                 "Start-Sleep -Milliseconds 300; "
                 f"$m.Position = [TimeSpan]::FromMilliseconds({seek_ms}); "
                 "$m.Play(); "
-                "Start-Sleep -Seconds 7200"
+                "while (-not $m.NaturalDuration.HasTimeSpan) { Start-Sleep -Milliseconds 200 }; "
+                "$dur = $m.NaturalDuration.TimeSpan.TotalSeconds - $m.Position.TotalSeconds + 2; "
+                "if ($dur -gt 0) { Start-Sleep -Seconds ([math]::Ceiling($dur)) }"
             )
             return subprocess.Popen(
                 ["powershell.exe", "-NoProfile", "-Command", ps_cmd], **devnull,
