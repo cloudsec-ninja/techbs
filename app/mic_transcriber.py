@@ -120,7 +120,9 @@ class MicTranscriber:
         """
         self.start()
 
-        use_fp16 = torch.cuda.is_available()
+        # FP16 requires compute capability >= 7.0 (Volta+). Older GPUs produce NaN.
+        use_fp16 = (torch.cuda.is_available()
+                     and torch.cuda.get_device_capability()[0] >= 7)
         chunk_idx = 0
 
         while True:
