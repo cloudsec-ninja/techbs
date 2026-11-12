@@ -1,5 +1,5 @@
 """
-Real-time microphone transcriber using sounddevice + Whisper.
+Real-time microphone transcriber using sounddevice + faster-whisper.
 
 Audio is recorded in a background thread and accumulated into chunk-sized
 buffers so Whisper transcription never drops frames while the main thread
@@ -15,10 +15,8 @@ import threading
 from typing import Iterator
 
 import numpy as np
-import torch
-import whisper
 
-SAMPLE_RATE = 16_000
+from .whisper_engine import SAMPLE_RATE, load_whisper, transcribe_array
 
 
 def _portaudio_hint() -> str:
@@ -58,9 +56,9 @@ def _check_sounddevice():
 
 
 class MicTranscriber:
-    def __init__(self, model_size: str = "base", chunk_seconds: int = 15):
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model = whisper.load_model(model_size, device=device)
+    def __init__(self, model_name: str, chunk_seconds: int = 15):
+        self.model = load_whisper(model_name)
+        self.device = self.model.techbs_device
         self.chunk_seconds = chunk_seconds
         self._frame_queue: queue.Queue = queue.Queue()
         self._chunk_queue: queue.Queue = queue.Queue()
@@ -120,9 +118,6 @@ class MicTranscriber:
         """
         self.start()
 
-        # FP16 requires compute capability >= 7.0 (Volta+). Older GPUs produce NaN.
-        use_fp16 = (torch.cuda.is_available()
-                     and torch.cuda.get_device_capability()[0] >= 7)
         chunk_idx = 0
 
         while True:
@@ -142,8 +137,7 @@ class MicTranscriber:
             start = float(chunk_idx * self.chunk_seconds)
             end   = float(start + self.chunk_seconds)
 
-            result = self.model.transcribe(audio, fp16=use_fp16)
-            text   = result["text"].strip()
+            text = transcribe_array(self.model, audio)
 
             yield (chunk_idx, start, end, text)
             chunk_idx += 1

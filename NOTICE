@@ -10,7 +10,16 @@ Copyright (c) 2022 OpenAI
 Licensed under the MIT License
 https://github.com/openai/whisper
 
-Used for local speech-to-text transcription.
+Whisper speech-to-text models, used for local transcription.
+
+===============================================================================
+faster-whisper — SYSTRAN
+===============================================================================
+Copyright (c) 2023 SYSTRAN
+Licensed under the MIT License
+https://github.com/SYSTRAN/faster-whisper
+
+Used to run Whisper models locally via CTranslate2.
 
 ===============================================================================
 BERT — Google Research

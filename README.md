@@ -11,7 +11,7 @@ TechBS uses AI to separate real technical depth from buzzword-heavy marketing. W
 *   **Recorded Content:** Run it against audio files to decide if they are worth your time.
 *   **Career Protection:** Don't let thin content influence your career decisions. Get the facts, skip the hype.
 
-Models are domain-specific and interchangeable. Each model is trained exclusively on content from a single technical domain, giving it a sharper eye for the difference between genuine expertise and performative jargon than a general-purpose model could.
+One model covers cybersecurity, AI/ML and network engineering. It works out which of those fields a talk is about, and judges it against what real technical depth looks like in that field.
 
 > **Disclaimer:** TechBS is for entertainment and informational purposes only. It is an AI model, and AI gets things wrong. Don't cry if it thinks your presentation is BS — just maybe reconsider why you have twelve slides about "leveraging synergies across the threat landscape."
 
@@ -19,9 +19,9 @@ Models are domain-specific and interchangeable. Each model is trained exclusivel
 
 ## How it works
 
-1. **Transcription** — Audio is converted to text locally in configurable samples (default 15 seconds). No external API required, everything runs on your machine.
+1. **Transcription** — Audio is converted to text locally with Whisper (via faster-whisper) in configurable samples (default 15 seconds). Silence and music within a sample are skipped. No external API required, everything runs on your machine.
 
-2. **Classification** — Each transcribed sample is scored by a custom-trained domain model that assigns a probability across three labels:
+2. **Classification** — Each transcribed sample is scored by the TechBS model, which assigns a probability across three labels and detects the field (cybersecurity, AI/ML or network engineering). The model judges each sample together with the speech just before it (the last 60 seconds by default), because the models were trained on passages about a minute long and judge short snippets poorly:
 
    | Label | Meaning |
    |-------|---------|
@@ -29,42 +29,40 @@ Models are domain-specific and interchangeable. Each model is trained exclusivel
    | **NEUTRAL** | Off-topic material — intros, logistics, audience Q&A, small talk |
    | **BS** | Marketing hype, buzzwords, vague claims, no technical substance |
 
-3. **Live UI** — Results appear in a Rich terminal dashboard updated in real time with three panels:
-   - **TechBS Meter** — current sample verdict with per-label confidence percentages, rolling verdict over the last 5 samples, and running totals
-   - **Live Transcript** — the last few transcribed samples with their labels and timestamps
-   - **Sample History** — a scrolling table of every sample analyzed so far with full score breakdown
+3. **Live dashboard** — A full-screen terminal view updates as each sample is scored:
+   - **Header** — position in the talk, the current sample's label, a rolling verdict over the last 5 samples, the running legit / neutral / BS split, and a colour timeline of the whole talk
+   - **Current sample** — its full transcript with buzzwords highlighted, plus the legit / neutral / BS scores
+   - **Earlier** — previous samples, newest first
 
-4. **Final Report** — When the audio ends (or you press Q), a summary shows the overall verdict, percentage breakdown across all samples, and average confidence scores.
+4. **Final report** — When the audio ends (or you press Q), the report shows the overall verdict and what it was based on, a breakdown by time, the full timeline, the most BS and most technical moments with timestamps, and the samples where the model was unsure.
 
 ---
 
 ## Verdicts
 
 ### Per-sample
-Every sample gets one of `LEGIT`, `NEUTRAL`, or `BS`, plus the raw probability for all three labels.
+Every sample gets one of `LEGIT`, `NEUTRAL`, or `BS`, plus the probability for all three labels and a confidence level (high / medium / low).
 
-### Rolling (live)
-The meter shows a live verdict over the last 5 samples as the talk progresses:
+### Overall verdict
+The verdict answers two questions:
+1. **How much of the talk is on-topic?** Legit and BS samples are on-topic; neutral samples (intros, logistics, small talk) are not.
+2. **How good is the on-topic part?** The share of it that is legit vs. BS.
+
+Samples count by confidence: high 1.0, medium 0.7, low 0.3. A sample the model was unsure about can't swing the result on its own.
 
 | Verdict | When |
 |---------|------|
-| `LEGIT CONTENT` | 60%+ of recent samples are Legit |
-| `MIXED — SOME GOOD STUFF` | No clear majority |
-| `SMELLS LIKE BS` | 40–60% of recent samples are BS |
-| `TOTAL BS` | 60%+ of recent samples are BS |
-| `OFF-TOPIC/SMALL TALK` | 60%+ of recent samples are Neutral |
-
-### Overall (final report)
-Neutral samples are excluded when calculating the final quality score so intros and housekeeping don't skew the result:
-
-| Verdict | Threshold |
-|---------|-----------|
-| `HIGHLY TECHNICAL` | 75%+ of content samples are Legit |
-| `SOLID CONTENT` | 60–75% Legit |
+| `HIGHLY TECHNICAL` | 75%+ of the on-topic part is legit |
+| `SOLID CONTENT` | More than 60% legit |
 | `MIXED` | Neither side above 60% |
-| `MOSTLY BS` | 60–75% BS |
+| `MOSTLY BS` | More than 60% BS |
 | `TOTAL BS` | 75%+ BS |
-| `OFF-TOPIC` | 100% Neutral (no domain content detected) |
+| `MOSTLY OFF-TOPIC` | Less than 40% of the talk is on-topic; the rest of the verdict says how good that part is |
+| `OFF-TOPIC` | Less than 10% of the talk is on-topic |
+| `NOT ENOUGH TO JUDGE` | Fewer than 4 on-topic samples |
+
+### Rolling (live)
+The header's "last 5" verdict uses the same tiers over the five most recent samples. It shows `OFF-TOPIC` when fewer than 40% of them are on-topic, and `TOO EARLY` until two on-topic samples have been heard.
 
 ---
 
@@ -86,11 +84,11 @@ curl -fsSL https://techbs.ai/install.sh | bash
 ```
 Installs to `~/.local/share/techbs` and registers the `techbs` command in your PATH.
 
-**Windows (PowerShell — run as Administrator):**
+**Windows (PowerShell):**
 ```powershell
 irm https://techbs.ai/install.ps1 | iex
 ```
-Installs to `%USERPROFILE%\techbs` and registers the `techbs` command.
+Installs to `%LOCALAPPDATA%\techbs` and registers the `techbs` command.
 
 > **Windows note:** If PowerShell blocks the script, run this once from an elevated PowerShell window, then re-run the installer:
 > ```powershell
@@ -102,9 +100,11 @@ The installer will:
 2. Download the latest TechBS release from GitHub
 3. Create a Python virtual environment
 4. Detect your GPU and install the appropriate PyTorch build (CUDA if NVIDIA GPU found, CPU-only otherwise)
-5. Install all remaining dependencies
-6. Pre-cache the Whisper transcription model so the first run is instant
+5. Install TechBS and its dependencies into the virtual environment
+6. Download the TechBS model (about 420 MB)
 7. Register the `techbs` command
+
+Re-running the installer updates TechBS in place. Downloaded models are kept.
 
 ## Uninstall
 
@@ -113,12 +113,12 @@ The installer will:
 curl -fsSL https://techbs.ai/install.sh | bash -s -- --uninstall
 ```
 
-**Windows (PowerShell — run as Administrator):**
+**Windows (PowerShell):**
 ```powershell
-irm https://techbs.ai/install.ps1 | iex -Uninstall
+$env:TECHBS_UNINSTALL=1; irm https://techbs.ai/install.ps1 | iex
 ```
 
-Removes the install directory and the `techbs` command. On Linux/macOS you may also remove the PATH line added to your shell rc file.
+Removes the install directory (including downloaded models) and the `techbs` command. On Linux/macOS you may also remove the PATH line added to your shell rc file.
 
 ---
 
@@ -136,6 +136,22 @@ In **URL mode** (`--url`), TechBS downloads the audio from a podcast episode or 
 
 In **mic mode** (`--mic`), TechBS records continuously from your default microphone and classifies each sample as it arrives. Press `Q` to stop.
 
+### Choosing a transcription model
+
+The first time you analyse something, TechBS asks which Whisper model to use and remembers your choice. Bigger models transcribe technical terms more accurately (for example "MITRE ATT&CK" rather than "Miter Attack"), which gives the classifier better input. They are larger downloads and slower on CPU.
+
+| Model | Download | Good for |
+|-------|----------|----------|
+| `tiny` | 75 MB | Very slow machines; expect errors |
+| `base` | 145 MB | CPU; the previous default |
+| `small` | 485 MB | Best balance on CPU |
+| `medium` | 1.5 GB | GPU recommended |
+| `large-v3-turbo` | 1.6 GB | Best balance on an NVIDIA GPU |
+| `distil-large-v3` | 1.5 GB | NVIDIA GPU, English only |
+| `large-v3` | 3.1 GB | Highest accuracy; GPU strongly recommended |
+
+The model downloads once on first use. Change it any time with `techbs --select-whisper`, or try one for a single run with `--whisper-model NAME`.
+
 ---
 
 ## Options
@@ -148,8 +164,11 @@ In **mic mode** (`--mic`), TechBS records continuously from your default microph
 | `--no-play` | Skip audio playback and run analysis only |
 | `--transcript` | Save a full JSON transcript when done |
 | `--chunk-seconds N` | Seconds per analysis sample (default: `15`) |
-| `--whisper-model SIZE` | Transcription accuracy: `tiny`, `base`, `small`, `medium`, `large` (default: `base`) |
+| `--context-seconds N` | Seconds of speech each sample is judged with, counting back from the sample (default: `60`). Set it equal to `--chunk-seconds` to judge each sample on its own |
+| `--whisper-model NAME` | Use this Whisper model for one run, e.g. `small` or `large-v3-turbo` (default: the model you chose) |
+| `--select-whisper` | Choose the Whisper model again and save it |
 | `--model-list` | List available models and their install status |
+| `--model NAME` | Use a specific model (default: `techbs`) |
 | `--model-pull NAME` | Download a model by name |
 | `--update-models` | Check for model updates and download any that are available |
 | `--check-updates` | Show available model versions without downloading |
@@ -187,20 +206,26 @@ techbs --file recording.wav --whisper-model small --no-play
 
 ---
 
-## Domain Models
+## The TechBS model
 
-Models live in the `models/` folder. Each model is custom-trained on content from a specific technical domain — giving it targeted signal on what counts as real depth versus fluff in that field.
+One model, `techbs`, covers three fields:
 
-| Model | Domain | Pull command |
-|-------|--------|-------------|
-| `cyberbs` | Cybersecurity | `techbs --model-pull cyberbs` |
-| `netbs` | Network Engineering | `techbs --model-pull netbs` |
+| Field | Examples of what it recognises |
+|-------|--------------------------------|
+| Cybersecurity | Exploit walkthroughs and malware analysis vs. vendor pitches and CISO platitudes |
+| AI / ML | How models are trained and evaluated vs. "AI will change everything" hype |
+| Network Engineering | QoS, routing and protocol detail vs. data-centre transformation marketing |
 
-Models are pulled directly from HuggingFace. To see all available models and their install status:
+The report shows the detected field ("Field: Network Engineering (84%)"). Speech outside these fields counts as off-topic. The model was retrained in 2026 on a reviewed dataset; each passage was checked against a written labelling guide.
+
+The installer downloads it. If it's missing (for example, the download failed), TechBS offers to download it on first run, or you can fetch it yourself:
 
 ```bash
-techbs --model-list
+techbs --model-pull techbs
+techbs --model-list            # see installed and available models
 ```
+
+Older single-field models (`cyberbs`, `netbs`, `aibs`) still work with `--model NAME`, but `techbs` replaces them and is used by default.
 
 Each model carries a version number and a SHA256 checksum in its `info.json` file. Downloaded weights are verified against this checksum — if the file doesn't match, it is deleted and the install fails loudly rather than silently loading a corrupted or tampered model.
 
@@ -222,8 +247,8 @@ techbs --update-models
 
 ## Notes
 
-- First run after install is instant — the transcription model is pre-cached by the installer.
-- TechBS runs on CPU, NVIDIA GPU (CUDA), or Apple Silicon (MPS) — the installer picks the right build automatically.
+- The classifier runs on CPU, NVIDIA GPU (CUDA), or Apple Silicon (MPS). Whisper runs on CUDA or CPU (on Apple Silicon it uses the CPU). The installer picks the right PyTorch build automatically.
+- If the GPU libraries fail to load, Whisper falls back to CPU with a warning rather than stopping.
 - Microphone mode requires a working audio input device.
   - Linux: `sudo apt install libportaudio2`
   - macOS: `brew install portaudio`
@@ -236,7 +261,8 @@ techbs --update-models
 
 TechBS is built on the following open-source projects:
 
-- **[Whisper](https://github.com/openai/whisper)** (OpenAI) — local speech-to-text transcription. MIT License.
+- **[Whisper](https://github.com/openai/whisper)** (OpenAI) — speech-to-text models. MIT License.
+- **[faster-whisper](https://github.com/SYSTRAN/faster-whisper)** (SYSTRAN) — fast local Whisper inference on CTranslate2. MIT License.
 - **[BERT](https://github.com/google-research/bert)** (Google Research) — base model architecture for domain classification. Apache 2.0 License. TechBS models are fine-tuned from `bert-base-uncased`.
 
 See the [NOTICE](NOTICE) file for full attribution details.

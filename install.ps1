@@ -3,12 +3,16 @@
 .SYNOPSIS
     TechBS web installer for Windows.
 .DESCRIPTION
-    Downloads the latest TechBS release, extracts it, creates a Python virtual
-    environment, and installs all dependencies.
+    Downloads the latest TechBS release, creates a Python virtual environment,
+    installs TechBS into it, and registers the `techbs` command.
+    Downloaded models are kept across reinstalls.
 .NOTES
     Usage:  irm https://techbs.ai/install.ps1 | iex
 
-    If execution policy blocks this script, run once from an admin PowerShell:
+    Testing an unpublished build:
+        $env:TECHBS_SOURCE = "C:\path\to\techbs-v0.90b0.zip"; .\install.ps1
+
+    If execution policy blocks this script, run once:
         Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 #>
 
@@ -19,7 +23,17 @@ $Uninstall = ($args -contains "-Uninstall") -or ($env:TECHBS_UNINSTALL -eq "1")
 
 $GitHubRepo     = "cloudsec-ninja/techbs"
 $GitHubApi      = "https://api.github.com/repos/$GitHubRepo/releases/latest"
-$DefaultInstall = Join-Path $env:USERPROFILE "techbs"
+$DefaultInstall = Join-Path $env:LOCALAPPDATA "techbs"
+$LegacyInstall  = Join-Path $env:USERPROFILE "techbs"   # pre-0.91 install location
+
+function Remove-FromUserPath([string]$dir) {
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if ($userPath -and ($userPath -split ";") -contains $dir) {
+        $newPath = ($userPath -split ";" | Where-Object { $_ -and $_ -ne $dir }) -join ";"
+        [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+        Write-Host "Removed $dir from PATH" -ForegroundColor Green
+    }
+}
 
 Write-Host ""
 Write-Host "+==========================================+" -ForegroundColor Cyan
@@ -32,24 +46,20 @@ Write-Host ""
 if ($Uninstall) {
     Write-Host "Uninstalling TechBS..." -ForegroundColor Cyan
 
-    $techbsCmd = Get-Command techbs -ErrorAction SilentlyContinue
-    if ($techbsCmd) {
-        $cmdPath = $techbsCmd.Source
-        Remove-Item $cmdPath -Force -ErrorAction SilentlyContinue
-        Write-Host "Removed $cmdPath" -ForegroundColor Green
-    }
+    $customHome = [Environment]::GetEnvironmentVariable("TECHBS_HOME", "User")
+    $targets = @($DefaultInstall, $LegacyInstall)
+    if ($customHome) { $targets += $customHome }
 
-    if (Test-Path $DefaultInstall) {
-        Remove-Item $DefaultInstall -Recurse -Force
-        Write-Host "Removed $DefaultInstall" -ForegroundColor Green
+    foreach ($dir in $targets) {
+        Remove-FromUserPath (Join-Path $dir "bin")
+        Remove-FromUserPath $dir
+        if (Test-Path $dir) {
+            Remove-Item $dir -Recurse -Force
+            Write-Host "Removed $dir" -ForegroundColor Green
+        }
     }
-
-    # Remove from user PATH
-    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-    if ($userPath -like "*$DefaultInstall*") {
-        $newPath = ($userPath -split ";" | Where-Object { $_ -ne $DefaultInstall }) -join ";"
-        [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-        Write-Host "Removed from PATH" -ForegroundColor Green
+    if ($customHome) {
+        [Environment]::SetEnvironmentVariable("TECHBS_HOME", $null, "User")
     }
 
     Write-Host ""
@@ -85,7 +95,7 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
 }
 Write-Host "ffmpeg found."
 
-# -- Visual C++ Redistributable ------------------------------------------------
+# -- Visual C++ Redistributable (required by PyTorch) --------------------------
 $vcDll = Join-Path $env:SystemRoot "System32\vcruntime140.dll"
 if (-not (Test-Path $vcDll)) {
     Write-Host ""
@@ -99,130 +109,142 @@ if (-not (Test-Path $vcDll)) {
     return
 }
 
-# -- Microsoft Visual C++ Redistributable (required by PyTorch) ----------------
-$vcInstalled = Test-Path "HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64"
-if (-not $vcInstalled) {
-    $vcInstalled = (Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall" -ErrorAction SilentlyContinue |
-        Get-ItemProperty | Where-Object { $_.DisplayName -like "*Visual C++*Redistributable*x64*" }) -ne $null
-}
-if (-not $vcInstalled) {
-    Write-Host ""
-    Write-Host "WARNING: Microsoft Visual C++ Redistributable (x64) not detected." -ForegroundColor Yellow
-    Write-Host "PyTorch requires this to run. Install it from:" -ForegroundColor Yellow
-    Write-Host "  https://aka.ms/vs/17/release/vc_redist.x64.exe" -ForegroundColor Cyan
-    Write-Host ""
-    $vcContinue = Read-Host "Continue anyway? [y/N]"
-    if ($vcContinue -notin @("y", "Y")) {
-        Write-Host "Install the Visual C++ Redistributable and re-run this installer."
-        Read-Host "Press Enter to exit"
-        return
-    }
-}
-
 # -- Choose install directory --------------------------------------------------
 Write-Host ""
 $InstallDir = Read-Host "Install directory [$DefaultInstall]"
 if ([string]::IsNullOrWhiteSpace($InstallDir)) {
     $InstallDir = $DefaultInstall
 }
+$InstallDir = [IO.Path]::GetFullPath($InstallDir)
 
-if ((Test-Path $InstallDir) -and (Get-ChildItem $InstallDir -Force | Measure-Object).Count -gt 0) {
-    $overwrite = Read-Host "Directory $InstallDir already exists and is not empty. Overwrite? [y/N]"
+# TechBS looks for models in %LOCALAPPDATA%\techbs unless TECHBS_HOME says otherwise
+if ($InstallDir -ne $DefaultInstall) {
+    [Environment]::SetEnvironmentVariable("TECHBS_HOME", $InstallDir, "User")
+    $env:TECHBS_HOME = $InstallDir
+    Write-Host "Set TECHBS_HOME=$InstallDir"
+}
+
+# -- Handle existing install (keep downloaded models) --------------------------
+if (Test-Path (Join-Path $InstallDir "venv")) {
+    $overwrite = Read-Host "TechBS is already installed at $InstallDir. Reinstall / update? (downloaded models are kept) [y/N]"
     if ($overwrite -notin @("y", "Y")) {
         Write-Host "Installation cancelled."
         return
     }
+    Get-ChildItem $InstallDir -Force | Where-Object { $_.Name -ne "models" } | Remove-Item -Recurse -Force
 }
 
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 
-# -- Fetch latest release URL from GitHub --------------------------------------
-Write-Host ""
-Write-Host "Fetching latest release from GitHub..."
-
-try {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $Release    = Invoke-RestMethod -Uri $GitHubApi -Headers @{ "User-Agent" = "TechBS-Installer" }
-    $ReleaseUrl = ($Release.assets | Where-Object { $_.name -like "*.zip" } | Select-Object -First 1).browser_download_url
-    if (-not $ReleaseUrl) {
-        # Fallback to source zipball if no .zip asset uploaded
-        $ReleaseUrl = $Release.zipball_url
-    }
-} catch {
-    Write-Error "Could not fetch release info from GitHub: $_"
-    return
+# -- Migrate models from the pre-0.91 install location -------------------------
+$legacyModels = Join-Path $LegacyInstall "models"
+$newModels    = Join-Path $InstallDir "models"
+if (($LegacyInstall -ne $InstallDir) -and (Test-Path $legacyModels) -and -not (Test-Path $newModels)) {
+    Write-Host "Moving models from previous install ($legacyModels)..."
+    Move-Item $legacyModels $newModels
+    Remove-FromUserPath $LegacyInstall
+    Write-Host "  The old folder $LegacyInstall is no longer used and can be deleted." -ForegroundColor Yellow
 }
 
-if (-not $ReleaseUrl) {
-    Write-Error "Could not determine download URL from GitHub. Check your internet connection."
-    return
-}
-
-# -- Download and extract ------------------------------------------------------
-Write-Host "Downloading TechBS..."
-
-$ZipPath = Join-Path $env:TEMP "techbs-download.zip"
-try {
-    Invoke-WebRequest -Uri $ReleaseUrl -OutFile $ZipPath -UseBasicParsing
-} catch {
-    Write-Error "Download failed: $_"
-    return
-}
-
-Write-Host "Extracting to $InstallDir..."
-
-# Extract to a temp dir first so we can strip the top-level folder
+# -- Download the release (or use TECHBS_SOURCE) -------------------------------
+$ZipPath     = Join-Path $env:TEMP "techbs-download.zip"
 $ExtractTemp = Join-Path $env:TEMP "techbs-extract"
+
+if ($env:TECHBS_SOURCE) {
+    Write-Host ""
+    Write-Host "Using local source: $env:TECHBS_SOURCE"
+    Copy-Item $env:TECHBS_SOURCE $ZipPath -Force
+} else {
+    Write-Host ""
+    Write-Host "Fetching latest release from GitHub..."
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        $Release    = Invoke-RestMethod -Uri $GitHubApi -Headers @{ "User-Agent" = "TechBS-Installer" }
+        $ReleaseUrl = ($Release.assets | Where-Object { $_.name -like "*.zip" } | Select-Object -First 1).browser_download_url
+        if (-not $ReleaseUrl) {
+            # Fallback to source zipball if no .zip asset uploaded
+            $ReleaseUrl = $Release.zipball_url
+        }
+    } catch {
+        Write-Error "Could not fetch release info from GitHub: $_"
+        return
+    }
+
+    if (-not $ReleaseUrl) {
+        Write-Error "Could not determine download URL from GitHub. Check your internet connection."
+        return
+    }
+
+    Write-Host "Downloading TechBS..."
+    try {
+        Invoke-WebRequest -Uri $ReleaseUrl -OutFile $ZipPath -UseBasicParsing
+    } catch {
+        Write-Error "Download failed: $_"
+        return
+    }
+}
+
 if (Test-Path $ExtractTemp) { Remove-Item $ExtractTemp -Recurse -Force }
 Expand-Archive -Path $ZipPath -DestinationPath $ExtractTemp -Force
 
-# Find the inner folder (the archive wraps files in a single top-level dir)
-$inner = Get-ChildItem $ExtractTemp -Directory | Select-Object -First 1
-if ($inner) {
-    Get-ChildItem $inner.FullName -Force | Move-Item -Destination $InstallDir -Force
-} else {
-    Get-ChildItem $ExtractTemp -Force | Move-Item -Destination $InstallDir -Force
-}
-
-Remove-Item $ExtractTemp -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item $ZipPath -Force -ErrorAction SilentlyContinue
+# The archive wraps files in a single top-level dir
+$inner  = Get-ChildItem $ExtractTemp -Directory | Select-Object -First 1
+$SrcDir = if ($inner -and (Test-Path (Join-Path $inner.FullName "pyproject.toml"))) { $inner.FullName } else { $ExtractTemp }
 
 # -- Virtual environment -------------------------------------------------------
 Write-Host ""
 Write-Host "Creating virtual environment..."
-if (-not (Test-Path "$InstallDir\venv")) {
-    & python -m venv "$InstallDir\venv"
-}
-
-$pip  = "$InstallDir\venv\Scripts\pip.exe"
+& python -m venv "$InstallDir\venv"
 $pyEx = "$InstallDir\venv\Scripts\python.exe"
 
-# -- Dependencies --------------------------------------------------------------
-Write-Host "Installing dependencies (this may take several minutes)..."
+# -- Install TechBS and dependencies -------------------------------------------
+Write-Host "Installing TechBS (this may take several minutes)..."
 & $pyEx -m pip install --upgrade pip --quiet
 
-# PyTorch: CUDA build if NVIDIA GPU present, otherwise CPU-only
+# PyTorch first: CUDA build if NVIDIA GPU present, otherwise CPU-only
 $nvSmi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
 if (-not $nvSmi -and (Test-Path "C:\Windows\System32\nvidia-smi.exe")) {
     $nvSmi = "C:\Windows\System32\nvidia-smi.exe"
 }
 if ($nvSmi) {
     Write-Host "NVIDIA GPU detected -- installing CUDA-enabled PyTorch..."
-    & $pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128 --quiet
+    & $pyEx -m pip install torch --index-url https://download.pytorch.org/whl/cu128 --quiet
 } else {
     Write-Host "No NVIDIA GPU detected -- installing CPU-only PyTorch..."
-    & $pip install torch torchvision --quiet
+    & $pyEx -m pip install torch --quiet
 }
 
-& $pip install -r "$InstallDir\requirements.txt" --quiet
-
-# -- Whisper base model --------------------------------------------------------
-Write-Host "Downloading Whisper base model..."
-try {
-    & $pyEx -c "import whisper; whisper.load_model('base'); print('Whisper model cached.')"
-} catch {
-    Write-Host "WARNING: Could not pre-cache Whisper model. It will download on first run." -ForegroundColor Yellow
+& $pyEx -m pip install "$SrcDir" --quiet
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "pip install failed."
+    return
 }
+
+Remove-Item $ExtractTemp -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item $ZipPath -Force -ErrorAction SilentlyContinue
+
+# -- Download the TechBS model -------------------------------------------------
+Write-Host ""
+Write-Host "Downloading the TechBS model (about 420 MB)..."
+& "$InstallDir\venv\Scripts\techbs.exe" --model-pull techbs --yes
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "WARNING: Could not download the model. TechBS will offer to download it on first run," -ForegroundColor Yellow
+    Write-Host "         or run: techbs --model-pull techbs" -ForegroundColor Yellow
+}
+
+# -- Register the techbs command -----------------------------------------------
+# A small shim in bin\ keeps the venv's python.exe etc. off the PATH.
+$BinDir = Join-Path $InstallDir "bin"
+New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+Set-Content -Path (Join-Path $BinDir "techbs.cmd") -Encoding ASCII -Value "@`"%~dp0..\venv\Scripts\techbs.exe`" %*"
+
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if (-not $userPath -or -not (($userPath -split ";") -contains $BinDir)) {
+    $newPath = if ($userPath) { "$userPath;$BinDir" } else { $BinDir }
+    [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+    Write-Host "Added $BinDir to your PATH"
+}
+$env:Path = "$env:Path;$BinDir"
 
 # -- Done ----------------------------------------------------------------------
 Write-Host ""
@@ -231,24 +253,13 @@ Write-Host "  TechBS installed successfully!" -ForegroundColor Green
 Write-Host "============================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Location:  $InstallDir"
+Write-Host "  Command:   techbs"
 Write-Host ""
 Write-Host "  Next steps:" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "    1. Pull a model:"
-Write-Host "       cd $InstallDir"
-Write-Host "       .\techbs.ps1 --model-list          # see available models"
-Write-Host "       .\techbs.ps1 --model-pull cyberbs  # download a model"
+Write-Host "    techbs --file keynote.mp3     # analyze a file"
+Write-Host "    techbs --mic                  # analyze live audio"
 Write-Host ""
-Write-Host "    2. Run TechBS:"
-Write-Host "       .\techbs.ps1 --file keynote.mp3"
-Write-Host "       .\techbs.ps1 --mic"
+Write-Host "  On first run TechBS asks which Whisper transcription model to use."
+Write-Host "  Open a new terminal to use the techbs command." -ForegroundColor Yellow
 Write-Host ""
-
-# PATH hint
-$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if ($userPath -notlike "*$InstallDir*") {
-    Write-Host "  Tip: Add TechBS to your PATH for easy access:" -ForegroundColor Yellow
-    Write-Host "    `$env:Path += `";$InstallDir`""
-    Write-Host "    [Environment]::SetEnvironmentVariable('Path', `$env:Path + ';$InstallDir', 'User')"
-    Write-Host ""
-}

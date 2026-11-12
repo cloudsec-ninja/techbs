@@ -7,11 +7,14 @@ set -e
 #
 # Usage:
 #   curl -fsSL https://techbs.ai/install.sh | bash
+#
+# Testing an unpublished build:
+#   TECHBS_SOURCE=dist/techbs-v0.90b0.tar.gz bash website/install.sh
 # ─────────────────────────────────────────────────────────────────────────────
 
 GITHUB_REPO="cloudsec-ninja/techbs"
 GITHUB_API="https://api.github.com/repos/$GITHUB_REPO/releases/latest"
-INSTALL_DIR="$HOME/.local/share/techbs"
+INSTALL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/techbs"
 BIN_DIR="$HOME/.local/bin"
 BIN_LINK="$BIN_DIR/techbs"
 
@@ -85,10 +88,11 @@ if [[ "$(uname)" == "Linux" ]]; then
 fi
 
 # ── Handle existing install ───────────────────────────────────────────────────
-if [ -d "$INSTALL_DIR" ] && [ "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
+# Downloaded models live in $INSTALL_DIR/models and are kept across reinstalls.
+if [ -d "$INSTALL_DIR/venv" ] || [ -d "$INSTALL_DIR/app" ]; then
     echo ""
     echo "TechBS is already installed at $INSTALL_DIR."
-    printf "Reinstall / update? [y/N]: "
+    printf "Reinstall / update? (downloaded models are kept) [y/N]: "
     if [ -t 0 ]; then
         read -r CONFIRM
     else
@@ -98,75 +102,85 @@ if [ -d "$INSTALL_DIR" ] && [ "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ]; then
         echo "Installation cancelled."
         exit 0
     fi
-    rm -rf "$INSTALL_DIR"
+    # Remove everything except models/ (also clears files from the pre-0.91 layout)
+    find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 ! -name models -exec rm -rf {} +
 fi
 
 mkdir -p "$INSTALL_DIR"
 
-# ── Fetch latest release from GitHub ─────────────────────────────────────────
-echo ""
-echo "Fetching latest release from GitHub..."
+# ── Download the release (or use TECHBS_SOURCE) ──────────────────────────────
+TMPDIR_TECHBS=$(mktemp -d /tmp/techbs-XXXXXX)
+trap 'rm -rf "$TMPDIR_TECHBS"' EXIT
+TARBALL="$TMPDIR_TECHBS/techbs.tar.gz"
+SRC_DIR="$TMPDIR_TECHBS/src"
+mkdir -p "$SRC_DIR"
 
-if command -v curl &> /dev/null; then
-    RELEASE_URL=$(curl -fsSL "$GITHUB_API" | grep '"tarball_url"' | cut -d'"' -f4)
-elif command -v wget &> /dev/null; then
-    RELEASE_URL=$(wget -qO- "$GITHUB_API" | grep '"tarball_url"' | cut -d'"' -f4)
+if [ -n "${TECHBS_SOURCE:-}" ]; then
+    echo ""
+    echo "Using local source: $TECHBS_SOURCE"
+    cp "$TECHBS_SOURCE" "$TARBALL"
 else
-    echo "ERROR: curl or wget is required."
-    exit 1
+    echo ""
+    echo "Fetching latest release from GitHub..."
+
+    if command -v curl &> /dev/null; then
+        RELEASE_URL=$(curl -fsSL "$GITHUB_API" | grep '"tarball_url"' | cut -d'"' -f4)
+    elif command -v wget &> /dev/null; then
+        RELEASE_URL=$(wget -qO- "$GITHUB_API" | grep '"tarball_url"' | cut -d'"' -f4)
+    else
+        echo "ERROR: curl or wget is required."
+        exit 1
+    fi
+
+    if [ -z "$RELEASE_URL" ]; then
+        echo "ERROR: Could not fetch release info from GitHub. Check your internet connection."
+        exit 1
+    fi
+
+    echo "Downloading TechBS..."
+    if command -v curl &> /dev/null; then
+        curl -fSL --progress-bar "$RELEASE_URL" -o "$TARBALL"
+    else
+        wget -q --show-progress -O "$TARBALL" "$RELEASE_URL"
+    fi
 fi
 
-if [ -z "$RELEASE_URL" ]; then
-    echo "ERROR: Could not fetch release info from GitHub. Check your internet connection."
-    exit 1
-fi
-
-# ── Download and extract ──────────────────────────────────────────────────────
-echo "Downloading TechBS..."
-
-TMPFILE=$(mktemp /tmp/techbs-XXXXXX.tar.gz)
-trap 'rm -f "$TMPFILE"' EXIT
-
-if command -v curl &> /dev/null; then
-    curl -fSL --progress-bar "$RELEASE_URL" -o "$TMPFILE"
-else
-    wget -q --show-progress -O "$TMPFILE" "$RELEASE_URL"
-fi
-
-echo "Extracting..."
-tar -xzf "$TMPFILE" -C "$INSTALL_DIR" --strip-components=1
+tar -xzf "$TARBALL" -C "$SRC_DIR" --strip-components=1
 
 # ── Create virtual environment ────────────────────────────────────────────────
 echo ""
 echo "Creating virtual environment..."
 $PYTHON -m venv "$INSTALL_DIR/venv"
+VENV_PY="$INSTALL_DIR/venv/bin/python"
 
-# ── Install dependencies ──────────────────────────────────────────────────────
-echo "Installing dependencies (this may take a few minutes)..."
-source "$INSTALL_DIR/venv/bin/activate"
-python -m pip install --upgrade pip --quiet
+# ── Install TechBS and dependencies ───────────────────────────────────────────
+echo "Installing TechBS (this may take a few minutes)..."
+"$VENV_PY" -m pip install --upgrade pip --quiet
 
-# Install PyTorch — CUDA build if NVIDIA GPU detected, CPU-only otherwise
+# Install PyTorch first — CUDA build if NVIDIA GPU detected, CPU-only otherwise
 if command -v nvidia-smi &> /dev/null; then
     echo "NVIDIA GPU detected — installing CUDA-enabled PyTorch..."
-    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128 --quiet
-else
+    "$VENV_PY" -m pip install torch --index-url https://download.pytorch.org/whl/cu128 --quiet
+elif [[ "$(uname)" == "Linux" ]]; then
     echo "No NVIDIA GPU detected — installing CPU-only PyTorch..."
-    pip install torch torchvision --quiet
+    "$VENV_PY" -m pip install torch --index-url https://download.pytorch.org/whl/cpu --quiet
+else
+    "$VENV_PY" -m pip install torch --quiet
 fi
 
-pip install -r "$INSTALL_DIR/requirements.txt" --quiet
+"$VENV_PY" -m pip install "$SRC_DIR" --quiet
 
-# ── Pre-cache Whisper base model ──────────────────────────────────────────────
-echo "Downloading Whisper base model..."
-python -c "import whisper; whisper.load_model('base'); print('✓ Whisper model cached.')"
-
-deactivate
+# ── Download the TechBS model ─────────────────────────────────────────────────
+echo ""
+echo "Downloading the TechBS model (about 420 MB)..."
+if ! "$INSTALL_DIR/venv/bin/techbs" --model-pull techbs --yes < /dev/null; then
+    echo "WARNING: Could not download the model. TechBS will offer to download it on first run,"
+    echo "         or run: techbs --model-pull techbs"
+fi
 
 # ── Register the techbs command ───────────────────────────────────────────────
 mkdir -p "$BIN_DIR"
-ln -sf "$INSTALL_DIR/techbs.sh" "$BIN_LINK"
-chmod +x "$INSTALL_DIR/techbs.sh"
+ln -sf "$INSTALL_DIR/venv/bin/techbs" "$BIN_LINK"
 
 # ── Ensure ~/.local/bin is in PATH ────────────────────────────────────────────
 SHELL_NAME=$(basename "$SHELL" 2>/dev/null || echo "bash")
@@ -196,10 +210,9 @@ echo "  Command:       techbs"
 echo ""
 echo "  Next steps:"
 echo ""
-echo "    techbs --model-list           # see available models"
-echo "    techbs --model-pull cyberbs   # download a model"
 echo "    techbs --file keynote.mp3     # analyze a file"
 echo "    techbs --mic                  # analyze live audio"
 echo ""
+echo "  On first run TechBS asks which Whisper transcription model to use."
 echo "  Restart your terminal (or run: source $RC_FILE) to use the techbs command."
 echo ""

@@ -1,26 +1,20 @@
 """
-Whisper-based audio chunker/transcriber.
+Whisper-based audio chunker/transcriber (faster-whisper).
 Yields (chunk_index, start_sec, end_sec, transcript) tuples.
 """
-import torch
-import whisper
 import numpy as np
 from typing import Iterator
 
-SAMPLE_RATE = 16000
-CHUNK_SECONDS = 15  # process this many seconds at a time
-_USE_GPU = torch.cuda.is_available()
-_USE_MPS = (not _USE_GPU) and torch.backends.mps.is_available()
+from .whisper_engine import SAMPLE_RATE, load_audio, load_whisper, transcribe_array
 
-# FP16 requires compute capability >= 7.0 (Volta+). Older GPUs produce NaN.
-_USE_FP16 = _USE_GPU and torch.cuda.get_device_capability()[0] >= 7
+CHUNK_SECONDS = 15  # process this many seconds at a time
 
 
 class AudioTranscriber:
-    def __init__(self, model_size: str = "base"):
-        # Whisper has limited MPS support, so keep it on CPU for stability
-        device = "cuda" if _USE_GPU else "cpu"
-        self.model = whisper.load_model(model_size, device=device)
+    def __init__(self, model_name: str):
+        self.model = load_whisper(model_name)
+        self.device = self.model.techbs_device
+        self.duration: float | None = None  # seconds; known once the audio is decoded
         self._skip_to_index: int | None = None
 
     def skip_to(self, chunk_index: int):
@@ -34,16 +28,9 @@ class AudioTranscriber:
         Load an audio file and yield transcribed chunks in order.
         Yields: (chunk_idx, start_sec, end_sec, transcript_text)
         """
-        try:
-            audio = whisper.load_audio(audio_path)
-        except FileNotFoundError:
-            raise RuntimeError(
-                "ffmpeg not found. Whisper requires ffmpeg to decode audio files.\n"
-                "  Windows: download from https://ffmpeg.org/download.html and add to PATH\n"
-                "  macOS:   brew install ffmpeg\n"
-                "  Linux:   sudo apt install ffmpeg"
-            ) from None
+        audio = load_audio(audio_path)
         total_samples = len(audio)
+        self.duration = total_samples / SAMPLE_RATE
         chunk_samples = chunk_seconds * SAMPLE_RATE
         num_chunks = max(1, (total_samples + chunk_samples - 1) // chunk_samples)
 
@@ -63,11 +50,10 @@ class AudioTranscriber:
             end = min(start + chunk_samples, total_samples)
             chunk = audio[start:end]
 
-            # Pad short final chunks so Whisper doesn't complain
+            # Pad short final chunks to a full window
             if len(chunk) < chunk_samples:
                 chunk = np.pad(chunk, (0, chunk_samples - len(chunk)))
 
-            result = self.model.transcribe(chunk, fp16=_USE_FP16)
-            text = result["text"].strip()
+            text = transcribe_array(self.model, chunk)
             yield (i, start / SAMPLE_RATE, end / SAMPLE_RATE, text)
             i += 1

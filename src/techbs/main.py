@@ -2,9 +2,9 @@
 """
 TechBS Analyzer
 Usage:
-    python main.py --file <audio_file> [--whisper-model base] [--chunk-seconds 15]
-    python main.py --url <url> [--whisper-model base] [--chunk-seconds 15]
-    python main.py --mic [--whisper-model base] [--chunk-seconds 15]
+    techbs --file <audio_file> [--whisper-model NAME] [--chunk-seconds 15]
+    techbs --url <url> [--whisper-model NAME] [--chunk-seconds 15]
+    techbs --mic [--whisper-model NAME] [--chunk-seconds 15]
 """
 import argparse
 import itertools
@@ -20,28 +20,35 @@ import time
 from pathlib import Path
 from typing import Iterator
 
-# Ensure imports work when run from any directory
-sys.path.insert(0, str(Path(__file__).parent))
-
-from analyzer import TechBSAnalyzer
-from version import VERSION
-from mic_transcriber import MicTranscriber
-from model_updater import ModelUpdater
+from .analyzer import TechBSAnalyzer
+from .config import load_config, save_config
+from .labels import DEFAULT_MODEL, preferred_models
+from .paths import models_dir
+from .pipeline import DEFAULT_CONTEXT_SECONDS, ContextScorer, context_samples
+from .whisper_models import (
+    CONFIG_KEY as WHISPER_CONFIG_KEY,
+    WhisperSelectionError,
+    pick_interactively,
+    resolve_whisper_model,
+)
+from .version import VERSION
+from .mic_transcriber import MicTranscriber
+from .model_updater import ModelUpdater
 from rich.console import Console
 from rich.table import Table
 from rich import box
-from skip import SkipController
-from transcriber import AudioTranscriber
+from .skip import SkipController
+from .transcriber import AudioTranscriber
 
 # model_debugger is a dev-only module, not shipped in the distribution package
 try:
-    from model_debugger import ModelDebugger, load_llm_config
+    from .model_debugger import ModelDebugger, load_llm_config
     _HAS_DEBUGGER = True
 except ImportError:
     _HAS_DEBUGGER = False
-from ui import TechBSUI
+from .ui import TechBSUI
 
-MODELS_DIR = Path(__file__).parent.parent / "models"
+MODELS_DIR = models_dir()
 
 
 def discover_models() -> list[Path]:
@@ -65,18 +72,47 @@ def load_model_info(model_path: Path) -> dict:
         return {}
 
 
-def select_model() -> tuple[Path, dict]:
-    """Print available models and prompt the user to pick one.
-    Returns (model_path, info) where info is the contents of info.json (may be empty).
+def _offer_model_download(console: Console) -> bool:
+    """No model installed: offer to download the default one (interactive only)."""
+    if not sys.stdin.isatty():
+        return False
+    console.print(f"[yellow]No TechBS model is installed yet.[/]")
+    try:
+        answer = input(f"Download the {DEFAULT_MODEL} model now (about 420 MB)? [Y/n]: ").strip().lower()
+    except EOFError:
+        return False
+    if answer not in ("", "y", "yes"):
+        return False
+    return ModelUpdater(models_dir=MODELS_DIR).pull_models([DEFAULT_MODEL])
+
+
+def select_model(name: str | None = None) -> tuple[Path, dict]:
+    """Pick the classifier model. Returns (model_path, info.json contents).
+
+    --model NAME picks one directly. Otherwise the unified model is used when
+    installed; legacy domain models are only offered when no unified model is.
     """
     console = Console()
-    models = discover_models()
+    if name:
+        path = MODELS_DIR / name
+        if not (path / "config.json").exists():
+            console.print(f"[red]Model '{name}' is not installed in {MODELS_DIR}.[/] "
+                          f"Download it with: techbs --model-pull {name}")
+            sys.exit(1)
+        return path, load_model_info(path)
 
-    if not models:
-        console.print(f"[red]No models found in {MODELS_DIR}[/]")
+    all_models = discover_models()
+    if not all_models and _offer_model_download(console):
+        all_models = discover_models()
+    if not all_models:
+        console.print(f"[red]No models installed in {MODELS_DIR}.[/] "
+                      f"Download one with: techbs --model-pull {DEFAULT_MODEL}")
         sys.exit(1)
 
-    infos = [load_model_info(m) for m in models]
+    all_infos = [load_model_info(m) for m in all_models]
+    keep = preferred_models(all_models, all_infos)
+    models = [all_models[i] for i in keep]
+    infos = [all_infos[i] for i in keep]
 
     if len(models) == 1:
         desc = infos[0].get("description", "")
@@ -113,6 +149,27 @@ def select_model() -> tuple[Path, dict]:
             console.print(f"[red]No interactive input available. Use --model to specify a model.[/]")
             sys.exit(1)
         console.print(f"[red]Enter a number between 1 and {len(models)}[/]")
+
+
+def _gpu_name() -> str | None:
+    import torch
+    return torch.cuda.get_device_name(0) if torch.cuda.is_available() else None
+
+
+def choose_whisper_model(cli_value: str | None, reselect: bool) -> str:
+    """Pick the Whisper model: --whisper-model > picker (first run / --select-whisper) > saved."""
+    config = load_config()
+    try:
+        return resolve_whisper_model(
+            cli_value,
+            reselect,
+            config,
+            pick=lambda: pick_interactively(_gpu_name(), current=config.get(WHISPER_CONFIG_KEY)),
+            save=lambda name: save_config({WHISPER_CONFIG_KEY: name}),
+        )
+    except WhisperSelectionError as exc:
+        Console().print(f"[red]{exc}[/]")
+        sys.exit(1)
 
 
 def _detect_platform() -> str:
@@ -323,16 +380,36 @@ def main():
         help="Use live microphone input",
     )
     parser.add_argument(
+        "--model",
+        metavar="NAME",
+        default=None,
+        help=f"Classifier model to use (default: {DEFAULT_MODEL}, or ask if several are installed)",
+    )
+    parser.add_argument(
         "--whisper-model",
-        default="base",
-        choices=["tiny", "base", "small", "medium", "large"],
-        help="Whisper model size (default: base)",
+        metavar="NAME",
+        default=None,
+        help="Whisper model for this run only, e.g. small or large-v3-turbo "
+             "(default: the model you picked on first run)",
+    )
+    parser.add_argument(
+        "--select-whisper",
+        action="store_true",
+        help="Choose and save the Whisper transcription model",
     )
     parser.add_argument(
         "--chunk-seconds",
         type=int,
         default=15,
         help="Seconds of audio per analysis chunk (default: 15)",
+    )
+    parser.add_argument(
+        "--context-seconds",
+        type=int,
+        default=DEFAULT_CONTEXT_SECONDS,
+        help="Seconds of speech each sample is judged with, including the samples "
+             f"before it (default: {DEFAULT_CONTEXT_SECONDS}; the models are trained on "
+             "about a minute of speech). Set to the chunk size to judge samples alone",
     )
     parser.add_argument(
         "--no-play",
@@ -353,7 +430,12 @@ def main():
         "--model-pull",
         nargs="+",
         metavar="NAME",
-        help="Download one or more models by name (e.g. --model-pull cyberbs3)",
+        help="Download one or more models by name (e.g. --model-pull techbs)",
+    )
+    parser.add_argument(
+        "--yes", "-y",
+        action="store_true",
+        help="With --model-pull: install available model updates without asking",
     )
     parser.add_argument(
         "--update-models",
@@ -392,11 +474,16 @@ def main():
         return
 
     if args.model_pull:
-        ModelUpdater(models_dir=MODELS_DIR).pull_models(args.model_pull)
-        return
+        ok = ModelUpdater(models_dir=MODELS_DIR).pull_models(args.model_pull, assume_yes=args.yes)
+        sys.exit(0 if ok else 1)
 
     if args.update_models or args.check_updates:
         ModelUpdater(models_dir=MODELS_DIR).run(check_only=args.check_updates)
+        return
+
+    if args.select_whisper and not (args.mic or args.file or args.url):
+        name = choose_whisper_model(None, reselect=True)
+        Console().print(f"[green]Saved.[/] TechBS will use Whisper [bold]{name}[/] from now on.")
         return
 
     if not args.mic and not args.file and not args.url:
@@ -404,12 +491,14 @@ def main():
     if args.mic and args.no_play:
         args.no_play = False  # mic mode has no playback; ignore silently
 
-    model_path, model_info = select_model()
-    model_description = model_info.get("description", "")
+    model_path, model_info = select_model(args.model)
+    model_domain = model_info.get("domain", "")
+    whisper_model = choose_whisper_model(args.whisper_model, reselect=args.select_whisper)
     print(f"Loading model: {model_path.name}...")
     analyzer = TechBSAnalyzer(model_path=str(model_path))
     print(f"  device: {analyzer.device}")
-    print(f"Loading Whisper ({args.whisper_model})...")
+    scorer = ContextScorer(analyzer, context_samples(args.context_seconds, args.chunk_seconds))
+    print(f"Loading Whisper ({whisper_model})...")
 
     # ── Model debugger setup (before analysis so model selection doesn't interrupt results) ──
     debugger = None
@@ -436,15 +525,16 @@ def main():
     # ── microphone mode ───────────────────────────────────────────────────────
     if args.mic:
         mic = MicTranscriber(
-            model_size=args.whisper_model,
+            model_name=whisper_model,
             chunk_seconds=args.chunk_seconds,
         )
+        print(f"  device: {mic.device}")
         mic.start()  # begin recording immediately while UI initialises
-        ui = TechBSUI(filename="Live Microphone", model_name=model_path.name, model_description=model_description)
+        ui = TechBSUI(filename="Live Microphone", model_name=model_path.name, domain=model_domain, is_live=True)
         skipper = SkipController()
         skipper.start()
         try:
-            transcript_path = ui.run(mic.transcribe_chunks(stop_event=skipper.quit_event), analyzer, skipper, save_transcript=need_transcript)
+            transcript_path = ui.run(mic.transcribe_chunks(stop_event=skipper.quit_event), scorer, skipper, save_transcript=need_transcript)
         finally:
             skipper.stop()
             mic.stop()
@@ -463,8 +553,10 @@ def main():
             sys.exit(1)
 
     # ── file / URL mode ───────────────────────────────────────────────────────
-    transcriber = AudioTranscriber(model_size=args.whisper_model)
-    ui = TechBSUI(filename=audio_path.name, model_name=model_path.name, model_description=model_description)
+    transcriber = AudioTranscriber(model_name=whisper_model)
+    print(f"  device: {transcriber.device}")
+    ui = TechBSUI(filename=audio_path.name, model_name=model_path.name, domain=model_domain,
+                  duration=lambda: transcriber.duration)
 
     skipper = None
     player = None
@@ -489,7 +581,7 @@ def main():
         chunk_gen = transcriber.transcribe_chunks(str(audio_path), args.chunk_seconds)
 
     try:
-        transcript_path = ui.run(chunk_gen, analyzer, skipper, save_transcript=need_transcript)
+        transcript_path = ui.run(chunk_gen, scorer, skipper, save_transcript=need_transcript)
     finally:
         if skipper:
             skipper.stop()
@@ -501,11 +593,15 @@ def main():
     _run_debugger(debugger, transcript_path, keep=args.transcript)
 
 
-if __name__ == "__main__":
+def cli():
+    """Console-script entry point (the `techbs` command)."""
     try:
         main()
     except KeyboardInterrupt:
         # Ensure terminal is restored if Rich's alternate screen didn't exit cleanly
-        from rich.console import Console
         Console().print("\n[dim]Interrupted.[/]")
         raise SystemExit(0)
+
+
+if __name__ == "__main__":
+    cli()

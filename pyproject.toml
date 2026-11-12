@@ -1,0 +1,75 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "techbs"
+dynamic = ["version"]
+description = "Real-time BS detection for tech talks, podcasts and keynotes"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.4",
+    "transformers>=4.40",
+    "numpy",
+    "faster-whisper>=1.2.1",
+    "rich>=13",
+    "sounddevice",   # --mic; Linux also needs libportaudio2, macOS needs portaudio
+    "yt-dlp",        # --url
+]
+
+[project.optional-dependencies]
+# LLM-powered model debugger (dev-only; not shipped in release packages)
+llm = [
+    "requests",
+    "anthropic",
+    "openai",
+    "google-genai",
+]
+
+[project.scripts]
+techbs = "techbs.main:cli"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+# Dataset preparation and training scripts in model_tools/
+train = [
+    "datasets",
+    "evaluate",
+    "accelerate",
+    "scikit-learn",
+    "pandas",
+    "requests",
+    "beautifulsoup4",
+    "python-docx",
+    "python-pptx",
+    "odfpy",
+    "ebooklib",
+    "pymupdf",
+    "striprtf",
+    "youtube-transcript-api",
+    "openai-whisper",   # converttxt.py
+]
+
+[tool.hatch.version]
+path = "src/techbs/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/techbs"]
+exclude = ["src/techbs/model_debugger.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# ── uv: CUDA PyTorch for local development on Linux/Windows ──────────────────
+# End users get the right torch build from the installer; this only affects
+# `uv sync` / `uv run` in a source checkout. macOS uses the default PyPI build.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

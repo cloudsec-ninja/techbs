@@ -11,6 +11,9 @@ from pathlib import Path
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
+from .device import classifier_device
+from .labels import collapse_unified
+
 MAX_TOKENS = 512
 
 LABELS = {0: "signal", 1: "neutral", 2: "bs"}
@@ -56,20 +59,26 @@ def find_buzzwords(text: str, patterns: list[re.Pattern]) -> list[str]:
 
 class TechBSAnalyzer:
     def __init__(self, model_path: str):
-        if torch.cuda.is_available():
-            self.device = torch.device("cuda")
-        elif torch.backends.mps.is_available():
-            self.device = torch.device("mps")
-        else:
-            self.device = torch.device("cpu")
+        self.device = classifier_device()
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         self.model = AutoModelForSequenceClassification.from_pretrained(model_path)
         self.model.to(self.device)
         self.model.eval()
         self.buzzword_patterns = load_buzzwords(model_path)
+        try:
+            info = json.loads((Path(model_path) / "info.json").read_text())
+        except (OSError, json.JSONDecodeError):
+            info = {}
+        # Unified models list their combined labels; legacy models have none
+        self.label_names: list[str] | None = info.get("labels")
 
-    def score(self, text: str) -> dict:
-        """Return per-class probabilities, predicted label, confidence, and buzzwords."""
+    def score(self, text: str, context: str | None = None) -> dict:
+        """Return per-class probabilities, predicted label, confidence, and buzzwords.
+
+        context: text to classify instead of *text* (e.g. the last minute of
+        speech, which matches the length the models were trained on).
+        Buzzwords are always found in *text* alone so they aren't double-counted.
+        """
         if not text.strip():
             return {
                 "signal_score": 0.0,
@@ -79,11 +88,13 @@ class TechBSAnalyzer:
                 "confidence": CONFIDENCE_HIGH,
                 "confidence_margin": 1.0,
                 "buzzwords": [],
+                "field": None,
+                "field_scores": {},
                 "text": text,
             }
 
         inputs = self.tokenizer(
-            text,
+            context if context and context.strip() else text,
             return_tensors="pt",
             truncation=True,
             max_length=MAX_TOKENS,
@@ -94,10 +105,15 @@ class TechBSAnalyzer:
             logits = self.model(**inputs).logits
             probs = torch.softmax(logits, dim=-1)[0]
 
-        signal_prob = probs[0].item()
-        neutral_prob = probs[1].item()
-        bs_prob = probs[2].item()
-        label = LABELS[int(probs.argmax().item())]
+        values = probs.tolist()
+        if self.label_names:
+            signal_prob, neutral_prob, bs_prob, field_scores = collapse_unified(values, self.label_names)
+        else:
+            signal_prob, neutral_prob, bs_prob = values[:3]
+            field_scores = {}
+        quality = [signal_prob, neutral_prob, bs_prob]
+        label = LABELS[quality.index(max(quality))]
+        field = max(field_scores, key=field_scores.get) if field_scores else None
 
         sorted_probs = sorted([signal_prob, neutral_prob, bs_prob], reverse=True)
         margin = sorted_probs[0] - sorted_probs[1]
@@ -112,5 +128,7 @@ class TechBSAnalyzer:
             "confidence": _confidence_level(margin),
             "confidence_margin": round(margin, 3),
             "buzzwords": buzzwords,
+            "field": field,
+            "field_scores": field_scores,
             "text": text,
         }

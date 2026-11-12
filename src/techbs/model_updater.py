@@ -5,34 +5,22 @@ Queries the HuggingFace API to discover available models under the techbsai
 organization, then downloads or updates model weights as needed.
 
 Usage:
-    python model_updater.py [--check] [--models-dir PATH]
+    python -m techbs.model_updater [--check] [--models-dir PATH]
 """
-import hashlib
 import json
 import sys
 import urllib.error
-import urllib.request
 from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
 from rich import box
 
-MODELS_DIR = Path(__file__).parent.parent / "models"
+from . import hf_repo
+from .hf_repo import HF_ORG
+from .paths import models_dir
 
-HF_ORG  = "techbsai"
-HF_API  = "https://huggingface.co/api"
-HF_BASE = "https://huggingface.co"
-
-# Files to download when pulling a model
-MODEL_FILES = [
-    "config.json",
-    "tokenizer.json",
-    "tokenizer_config.json",
-    "buzzwords.json",
-    "info.json",
-    "model.safetensors",
-]
+MODELS_DIR = models_dir()
 
 
 def _parse_version(v: str) -> tuple:
@@ -41,29 +29,6 @@ def _parse_version(v: str) -> tuple:
         return tuple(int(x) for x in str(v).split("."))
     except (ValueError, AttributeError):
         return (0, 0, 0)
-
-
-def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for block in iter(lambda: f.read(65536), b""):
-            h.update(block)
-    return h.hexdigest()
-
-
-def _progress(label: str):
-    def hook(count, block_size, total_size):
-        if total_size <= 0:
-            mb = count * block_size / 1_048_576
-            sys.stdout.write(f"\r  {label}  {mb:.1f} MB")
-        else:
-            pct = min(100, int(count * block_size * 100 / total_size))
-            mb_done = count * block_size / 1_048_576
-            mb_total = total_size / 1_048_576
-            bar = "█" * (pct // 5) + "░" * (20 - pct // 5)
-            sys.stdout.write(f"\r  {label}  [{bar}] {pct:3d}%  {mb_done:.0f}/{mb_total:.0f} MB")
-        sys.stdout.flush()
-    return hook
 
 
 class ModelUpdater:
@@ -75,36 +40,22 @@ class ModelUpdater:
 
     def _fetch_manifest(self) -> dict:
         """Build a manifest by querying the HuggingFace API for all models under the org."""
-        api_url = f"{HF_API}/models?author={self.hf_org}"
         try:
-            with urllib.request.urlopen(api_url, timeout=15) as resp:
-                hf_models = json.loads(resp.read().decode("utf-8"))
+            names = hf_repo.list_org_model_names(self.hf_org)
         except urllib.error.URLError as e:
             raise RuntimeError(f"Could not reach HuggingFace API: {e}") from e
         except json.JSONDecodeError as e:
             raise RuntimeError(f"Invalid response from HuggingFace API: {e}") from e
 
         models = {}
-        for hf_model in hf_models:
-            repo_id = hf_model.get("id", "")
-            if not repo_id:
-                continue
-            name = repo_id.split("/")[-1]
+        for name in names:
+            repo_id = f"{self.hf_org}/{name}"
 
-            # Fetch info.json from the repo for version, sha256, and metadata
-            info = {}
-            info_fetched = False
-            try:
-                info_url = f"{HF_BASE}/{repo_id}/resolve/main/info.json"
-                with urllib.request.urlopen(info_url, timeout=10) as r:
-                    info = json.loads(r.read().decode("utf-8"))
-                    info_fetched = True
-            except Exception:
-                pass
-
-            # Skip models whose info.json couldn't be fetched — without version
-            # metadata we can't reliably compare local vs remote versions.
-            if not info_fetched:
+            # Fetch info.json for version, sha256, and metadata. Skip models
+            # whose info.json couldn't be fetched — without version metadata we
+            # can't reliably compare local vs remote versions.
+            info = hf_repo.fetch_info_json(repo_id)
+            if info is None:
                 continue
 
             models[name] = {
@@ -114,7 +65,7 @@ class ModelUpdater:
                 "version":      info.get("version", "0.0.0"),
                 "sha256":       info.get("weights_sha256") or info.get("sha256", ""),
                 "size_mb":      info.get("size_mb"),
-                "url":          f"{HF_BASE}/{repo_id}/resolve/main/model.safetensors",
+                "url":          hf_repo.file_url(repo_id, "model.safetensors"),
             }
 
         return {"models": models}
@@ -130,16 +81,10 @@ class ModelUpdater:
 
     def _download_weights(self, url: str, dest: Path) -> None:
         """Download to a .tmp file then atomically replace dest on success."""
-        tmp = dest.with_suffix(".tmp")
         try:
-            urllib.request.urlretrieve(url, tmp, reporthook=_progress("model.safetensors"))
+            hf_repo.download_atomic(url, dest, reporthook=hf_repo.progress_hook("model.safetensors"))
+        finally:
             sys.stdout.write("\n")
-            tmp.replace(dest)
-        except Exception:
-            sys.stdout.write("\n")
-            if tmp.exists():
-                tmp.unlink()
-            raise
 
     def list_models(self) -> None:
         """Show all available models from the manifest, with local install status."""
@@ -193,23 +138,47 @@ class ModelUpdater:
         self.console.print(table)
         self.console.print("[dim]Pull a model:  techbs --model-pull <name>[/]")
 
-    def pull_models(self, names: list[str]) -> None:
-        """Download one or more models by name from the manifest."""
+    def _download_supporting_files(self, name: str, model_dir: Path) -> bool:
+        """Fetch config, tokenizer, buzzwords and info.json for a model.
+
+        Always overwrites: a new model version can change any of them (e.g. its
+        labels), and they must match the weights. Returns False on failure.
+        """
+        repo_id = f"{self.hf_org}/{name}"
+        for filename in hf_repo.MODEL_FILES:
+            if filename == "model.safetensors":
+                continue  # weights are downloaded separately, with progress
+            try:
+                hf_repo.download_atomic(hf_repo.file_url(repo_id, filename), model_dir / filename)
+            except Exception as e:
+                if filename == "buzzwords.json":  # optional
+                    continue
+                self.console.print(f"  [red]Could not download {filename}: {e}[/]")
+                return False
+        return True
+
+    def pull_models(self, names: list[str], assume_yes: bool = False) -> bool:
+        """Download one or more models by name. Returns True if every model is
+        installed and up to date afterwards. assume_yes installs available
+        updates without asking (for installers)."""
         try:
             manifest = self._fetch_manifest()
         except RuntimeError as e:
             self.console.print(f"[red]{e}[/]")
-            return
+            return False
 
         remote_models = manifest.get("models", {})
         if not remote_models:
             self.console.print("[yellow]No models found in manifest.[/]")
-            return
+            return False
+
+        ok = True
 
         for name in names:
             if name not in remote_models:
                 self.console.print(f"[red]Model '{name}' not found in manifest.[/]")
                 self.console.print(f"[dim]Available: {', '.join(sorted(remote_models))}[/]")
+                ok = False
                 continue
 
             info        = remote_models[name]
@@ -226,59 +195,49 @@ class ModelUpdater:
                 local_ver  = local_info.get("version", "?")
                 if _parse_version(version) > _parse_version(local_ver):
                     self.console.print(f"  [green]Update available: v{local_ver} → v{version}[/]")
-                    try:
-                        confirm = input("  Download update? [y/N]: ").strip().lower()
-                    except EOFError:
-                        continue
-                    if confirm != "y":
-                        continue
+                    if not assume_yes:
+                        try:
+                            confirm = input("  Download update? [y/N]: ").strip().lower()
+                        except EOFError:
+                            continue
+                        if confirm != "y":
+                            continue
                 else:
                     self.console.print(f"  [dim]Up to date (v{local_ver})[/]")
                     continue
 
             if not url:
                 self.console.print(f"  [red]No download URL in manifest for {name}[/]")
+                ok = False
                 continue
 
             self.console.print(f"\n[bold cyan]Pulling {display}[/] ({name})...")
             model_dir.mkdir(parents=True, exist_ok=True)
 
-            # Download all supporting files from HuggingFace
-            repo_id = f"{self.hf_org}/{name}"
-            for filename in MODEL_FILES:
-                if filename == "model.safetensors":
-                    continue  # weights downloaded separately below with progress
-                dest = model_dir / filename
-                # Re-download if missing or suspiciously small (likely a partial download)
-                if dest.exists() and dest.stat().st_size > 0:
-                    continue
-                file_url = f"{HF_BASE}/{repo_id}/resolve/main/{filename}"
-                self.console.print(f"  [dim]{filename}[/]")
-                try:
-                    tmp = dest.with_suffix(dest.suffix + ".tmp")
-                    urllib.request.urlretrieve(file_url, tmp)
-                    tmp.replace(dest)
-                except Exception as e:
-                    if tmp.exists():
-                        tmp.unlink()
-                    self.console.print(f"  [yellow]Warning: could not download {filename}: {e}[/]")
 
             # Download model weights
             try:
                 self._download_weights(url, weights)
             except Exception as e:
                 self.console.print(f"  [red]Download failed: {e}[/]")
+                ok = False
                 continue
 
             if sha256:
-                actual = _sha256(weights)
+                actual = hf_repo.sha256_file(weights)
                 if actual != sha256:
                     weights.unlink(missing_ok=True)
                     self.console.print(f"  [red]SHA256 mismatch — file deleted.[/]")
                     self.console.print(f"  [dim]Expected: {sha256}[/]")
                     self.console.print(f"  [dim]Got:      {actual}[/]")
+                    ok = False
                     continue
                 self.console.print(f"  [green]Integrity verified[/]")
+
+            # Supporting files only after the weights are in place, so they always match
+            if not self._download_supporting_files(name, model_dir):
+                ok = False
+                continue
 
             # Write/update info.json
             local_info = self._local_info(model_dir)
@@ -292,6 +251,7 @@ class ModelUpdater:
                 json.dumps(local_info, indent=2, ensure_ascii=False), encoding="utf-8"
             )
             self.console.print(f"  [green]Model '{name}' ready (v{version})[/]")
+        return ok
 
     def run(self, check_only: bool = False) -> None:
         self.console.print("[bold cyan]Checking for model updates...[/]")
@@ -372,7 +332,7 @@ class ModelUpdater:
                 continue
 
             if expected_sha256:
-                actual = _sha256(weights_path)
+                actual = hf_repo.sha256_file(weights_path)
                 if actual != expected_sha256:
                     weights_path.unlink(missing_ok=True)
                     self.console.print(f"  [red]SHA256 mismatch — file deleted. Update aborted.[/]")
@@ -380,6 +340,10 @@ class ModelUpdater:
                     self.console.print(f"  [dim]Got:      {actual}[/]")
                     continue
                 self.console.print(f"  [green]✓ Integrity verified[/]")
+
+            # Config, tokenizer and labels can change between versions
+            if not self._download_supporting_files(model_name, model_dir):
+                continue
 
             # Update info.json with new version + hash
             local_info = self._local_info(model_dir)
